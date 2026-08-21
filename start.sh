@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# CodeOops — one-command startup and readiness check.
+#
+# Validates prerequisites, starts the stack (building only what isn't
+# already present as an image — so this works identically whether the
+# images came from `docker compose build` or a `docker load` of the
+# distributed .tar archives), and reports health clearly. Never hides a
+# failure behind a generic "done" — every check prints its own pass/fail.
+#
+# See DOCKER_DEPLOYMENT.md for what each step means and how to fix failures.
+
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+REQUIRED_MODEL="codewiki-qwen2.5-16k:latest"
+IMAGES=(codeoops-codewiki codeoops-backend codeoops-frontend)
+FAIL=0
+FRONTEND=1
+
+for arg in "$@"; do
+  case "$arg" in
+    --backend-only) FRONTEND=0 ;;
+    -h|--help)
+      echo "Usage: ./start.sh [--backend-only]"
+      echo "  --backend-only   Start codewiki + backend only, skip the Angular frontend."
+      exit 0
+      ;;
+  esac
+done
+
+ok()   { printf '  \033[32m\xe2\x9c\x93\033[0m %s\n' "$1"; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$1"; }
+err()  { printf '  \033[31m\xe2\x9c\x97\033[0m %s\n' "$1"; FAIL=1; }
+step() { printf '\n== %s ==\n' "$1"; }
+
+step "1. Docker"
+if ! command -v docker >/dev/null 2>&1; then
+  err "docker CLI not found. Install Docker Desktop (Mac/Windows) or Docker Engine (Linux)."
+else
+  ok "docker CLI found ($(docker --version))"
+fi
+
+if ! docker info >/dev/null 2>&1; then
+  err "Docker daemon not reachable — is Docker Desktop / dockerd running?"
+else
+  ok "Docker daemon reachable"
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+  err "docker compose (v2 plugin) not found."
+else
+  ok "docker compose found ($(docker compose version --short 2>/dev/null))"
+fi
+
+if [ "$FAIL" -eq 1 ]; then
+  echo ""
+  echo "Fix the above before continuing."
+  exit 1
+fi
+
+step "2. Environment"
+if [ ! -f .env ]; then
+  warn ".env not found — creating from .env.example (defaults match the tuned, resource-conscious config)"
+  cp .env.example .env
+else
+  ok ".env present"
+fi
+
+step "3. Ollama (native on the host — not a container in this stack)"
+if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
+  ok "Ollama reachable at localhost:11434"
+  if curl -s http://localhost:11434/api/tags | grep -q "\"${REQUIRED_MODEL}\""; then
+    ok "Model ${REQUIRED_MODEL} present"
+  else
+    err "Model ${REQUIRED_MODEL} not found locally."
+    echo "      Run: ollama pull ${REQUIRED_MODEL}"
+    echo "      (or set MAIN_MODEL / FALLBACK_MODEL_1 / CLUSTER_MODEL in .env to a model you already have —"
+    echo "       do not silently substitute one without updating .env, generation quality depends on it)"
+  fi
+else
+  err "Ollama not reachable at localhost:11434."
+  echo "      Start it: 'ollama serve', or launch the Ollama.app menu-bar app on macOS."
+  echo "      The stack will still start, but every documentation generation will fail until Ollama is up."
+fi
+
+step "4. Images"
+for img in "${IMAGES[@]}"; do
+  if docker image inspect "${img}:latest" >/dev/null 2>&1; then
+    ok "${img}:latest present"
+  else
+    warn "${img}:latest not built/loaded yet — 'docker compose up' will build it from source now"
+  fi
+done
+
+step "5. Starting the stack"
+SERVICES="codewiki backend"
+[ "$FRONTEND" -eq 1 ] && SERVICES="codewiki backend frontend"
+if ! docker compose up -d $SERVICES; then
+  err "docker compose up failed — see the output above."
+  exit 1
+fi
+
+step "6. Waiting for health"
+for service in $SERVICES; do
+  healthy=0
+  for _ in $(seq 1 30); do
+    status=$(docker inspect --format '{{.State.Health.Status}}' "codeoops-${service}" 2>/dev/null || echo "unknown")
+    if [ "$status" = "healthy" ]; then
+      ok "${service} healthy"
+      healthy=1
+      break
+    fi
+    sleep 2
+  done
+  if [ "$healthy" -eq 0 ]; then
+    err "${service} did not become healthy in time — check: docker compose logs ${service}"
+  fi
+done
+
+step "7. Backend -> CodeWiki connectivity"
+ENGINE=$(curl -s http://localhost:8000/api/v1/documentation/engine 2>/dev/null || echo "")
+if echo "$ENGINE" | grep -q '"reachable":true'; then
+  ok "backend confirms codewiki reachable: $ENGINE"
+else
+  err "backend cannot reach codewiki: ${ENGINE:-no response}"
+fi
+
+echo ""
+if [ "$FAIL" -eq 1 ]; then
+  echo "Startup finished with warnings/errors above — see DOCKER_DEPLOYMENT.md > Troubleshooting."
+  exit 1
+fi
+
+echo "CodeOops is up:"
+echo "  Backend:   http://localhost:8000  (docs: http://localhost:8000/docs)"
+echo "  CodeWiki:  http://localhost:8001"
+[ "$FRONTEND" -eq 1 ] && echo "  Frontend:  http://localhost:4200"
+echo ""
+echo "Stop with:    docker compose down"
+echo "Logs with:    docker compose logs -f [codewiki|backend|frontend]"

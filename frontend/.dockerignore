@@ -1,0 +1,12 @@
+.git
+.gitignore
+Dockerfile*
+docker-compose*
+.dockerignore
+
+node_modules/
+dist/
+.angular/
+.vscode/
+*.log
+README.md

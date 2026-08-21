@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / Angular
+node_modules/
+dist/
+.angular/
+out-tsc/
+coverage/
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Runtime / generated data (uploaded repos, generated overviews, job cache —
+# never application source, and CodeOops has no database to gitignore instead)
+backend/var/
+codewiki/codewiki/output/
+
+# Claude Code session tooling — not part of the application
+.claude/

@@ -1,0 +1,24 @@
+# CodeOops API — runtime dependencies
+#
+# Deliberately small. CodeOops is an orchestration layer: no ORM, no task
+# queue, no LLM client. httpx is for the CodeWiki integration — an HTTP
+# client, confined to app/services/codewiki/, and never touches an LLM.
+# markdown + xhtml2pdf are the one exception to "no Markdown toolchain":
+# they render CodeWiki's overview.md to a downloadable PDF for export
+# (app/services/documentation/export_service.py) — pure Python, no system
+# binaries (no wkhtmltopdf/Chromium/Cairo). Mermaid diagrams in that PDF
+# render as formatted code blocks, not images — the web viewer already
+# renders them as real diagrams client-side; only this one export path
+# doesn't.
+
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic>=2.9,<3.0
+pydantic-settings>=2.4,<3.0
+httpx>=0.27,<1.0
+markdown>=3.7,<4.0
+xhtml2pdf>=0.2.16,<0.3.0
+# FastAPI's UploadFile/Form parsing (POST /repositories/upload) requires this
+# at runtime, not just in tests — previously only listed in requirements-dev.txt,
+# which masked the gap locally since dev installs always pull both files.
+python-multipart>=0.0.9,<1.0

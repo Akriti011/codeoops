@@ -1,0 +1,216 @@
+<co-app-shell>
+  <section class="workspace">
+    @if (!repositoryId()) {
+      <!-- ---------------------------------------------------- no selection -->
+      <header class="intro">
+        <p class="co-eyebrow">Documentation workspace</p>
+        <h1 class="co-h1">Pick a repository to open</h1>
+        <p class="co-lede intro__lede">
+          The workspace shows one repository at a time, with the documentation
+          state reported by the engine for that exact repository.
+        </p>
+      </header>
+
+      <div class="co-panel picker">
+        <h2 class="co-h3">Submit a new repository</h2>
+        <co-repository-submit-form />
+      </div>
+
+      @if (knownRepositories().length > 0) {
+        <div class="co-panel picker">
+          <h2 class="co-h3">Recently submitted</h2>
+          <ul class="picker__list">
+            @for (item of knownRepositories(); track item.id) {
+              <li>
+                <a class="picker__item" [routerLink]="['/documentation', item.id]">
+                  <span class="picker__name">{{ item.owner }}/{{ item.name }}</span>
+                  <span class="picker__url co-mono">{{ item.repository_url }}</span>
+                  <span class="picker__go" aria-hidden="true">→</span>
+                </a>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+    } @else if (loadState() === 'SUBMITTING') {
+      <!-- ------------------------------------------------------- loading -->
+      <div class="co-panel state-panel" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <p>Loading repository…</p>
+      </div>
+    } @else if (loadState() === 'FAILED') {
+      <!-- --------------------------------------------------------- error -->
+      <div class="co-panel state-panel state-panel--error" role="alert">
+        <h1 class="co-h2">Could not open this repository</h1>
+        <p class="state-panel__message">{{ error()?.message }}</p>
+        <p class="co-help">
+          Error code: <code class="co-code">{{ error()?.code }}</code>
+        </p>
+        @if (error()?.offline) {
+          <p class="co-help">
+            The CodeOops API did not respond. Start it with
+            <code class="co-code">uvicorn app.main:app --reload --port 8000</code>.
+          </p>
+        }
+        <div class="state-panel__actions">
+          <button type="button" class="co-btn co-btn--ghost" (click)="retry()">
+            Try again
+          </button>
+          <a class="co-btn co-btn--quiet" routerLink="/repositories">
+            Back to repositories
+          </a>
+        </div>
+      </div>
+    } @else if (repository(); as repo) {
+      <!-- ----------------------------------------------------- repository -->
+      <nav class="breadcrumb" aria-label="Breadcrumb">
+        <a routerLink="/repositories">Repositories</a>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">{{ repo.name }}</span>
+      </nav>
+
+      <header class="repo co-panel">
+        <div class="repo__main">
+          <div class="repo__identity">
+            <h1 class="co-h1 repo__name">{{ repo.name }}</h1>
+            <a
+              class="repo__owner co-mono"
+              [href]="repo.repository_url"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {{ repo.owner }}/{{ repo.name }}
+              <span class="sr-only">(opens in a new tab)</span>
+            </a>
+          </div>
+
+          <div class="repo__badges">
+            <co-status-pill [state]="repo.status" />
+            <span class="branch-pill co-mono">{{ repo.default_branch }}</span>
+          </div>
+        </div>
+
+        <p class="repo__generated">
+          Generated:
+          {{
+            documentation()?.artifact
+              ? (documentation()!.artifact!.generated_at | date: 'medium')
+              : 'Not generated yet'
+          }}
+        </p>
+      </header>
+
+      <div class="co-panel timeline">
+        <div class="timeline__head">
+          <h2 class="co-h3">Generation status</h2>
+          <div class="timeline__actions">
+            @if (isGenerating()) {
+              <co-documentation-prism class="timeline__prism" />
+            }
+            @if (hasEverGenerated() && overviewPdfUrl(); as pdfUrl) {
+              <a class="co-btn co-btn--quiet" [href]="pdfUrl" target="_blank" rel="noopener noreferrer">
+                Download PDF
+              </a>
+            }
+            @if (hasEverGenerated() && overviewCsvUrl(); as csvUrl) {
+              <a class="co-btn co-btn--quiet" [href]="csvUrl" target="_blank" rel="noopener noreferrer">
+                Export CSV
+              </a>
+            }
+            <button
+              type="button"
+              class="co-btn co-btn--primary"
+              (click)="generateDocumentation()"
+              [disabled]="isGenerating()"
+            >
+              {{ hasEverGenerated() ? 'Regenerate Docs' : 'Generate Documentation' }}
+            </button>
+          </div>
+        </div>
+
+        @if (activeJob(); as job) {
+          @if (job.status === 'FAILED') {
+            <div class="step" data-tone="danger">
+              <span class="step__marker" aria-hidden="true"></span>
+              <div class="step__body">
+                <span class="step__label">Generation failed</span>
+                <span class="step__detail">
+                  {{ job.error_message ?? 'CodeWiki reported a failure for this repository.' }}
+                </span>
+              </div>
+            </div>
+          } @else {
+            <ol class="timeline__steps">
+              @for (step of livePipelineSteps(); track step.key) {
+                <li class="step" [attr.data-tone]="step.state === 'done' ? 'success' : step.state === 'active' ? 'progress' : 'neutral'">
+                  <span class="step__marker" aria-hidden="true">
+                    @if (step.state === 'done') {
+                      <svg viewBox="0 0 16 16"><path d="M3.5 8.5 6.5 11.5 12.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                    }
+                  </span>
+                  <div class="step__body">
+                    <span class="step__label">{{ step.label }}</span>
+                  </div>
+                </li>
+              }
+            </ol>
+          }
+        } @else {
+          <ol class="timeline__steps">
+            @for (step of generationSteps(); track step.label) {
+              <li class="step" [attr.data-tone]="step.tone">
+                <span class="step__marker" aria-hidden="true">
+                  @if (step.done) {
+                    <svg viewBox="0 0 16 16"><path d="M3.5 8.5 6.5 11.5 12.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  }
+                </span>
+                <div class="step__body">
+                  <span class="step__label">{{ step.label }}</span>
+                  @if (step.detail) {
+                    <span class="step__detail">{{ step.detail }}</span>
+                  }
+                </div>
+              </li>
+            }
+          </ol>
+        }
+      </div>
+
+      <div class="content">
+        <nav class="doc-nav" aria-label="Documentation sections">
+          <p class="doc-nav__title co-eyebrow">Documentation</p>
+          @if (toc().length > 0) {
+            <ul>
+              @for (item of toc(); track item.id) {
+                <li>
+                  <a
+                    class="doc-nav__item"
+                    [class.is-active]="item.id === activeHeadingId()"
+                    [class.is-nested]="item.depth > 2"
+                    [attr.href]="'#' + item.id"
+                  >
+                    {{ item.text }}
+                  </a>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="doc-nav__note">
+              Table of contents will appear once documentation is generated.
+            </p>
+          }
+        </nav>
+
+        <div class="doc-body co-panel" #docContent>
+          @if (documentation(); as docState) {
+            <co-documentation-viewer
+              [repository]="repo"
+              [state]="docState"
+              (tocChange)="onTocChange($event)"
+            />
+          }
+        </div>
+      </div>
+    }
+  </section>
+</co-app-shell>

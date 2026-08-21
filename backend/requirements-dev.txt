@@ -1,0 +1,4 @@
+-r requirements.txt
+
+pytest>=8.0
+# python-multipart is now a direct runtime dependency (see requirements.txt)

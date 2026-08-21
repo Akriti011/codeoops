@@ -1,0 +1,114 @@
+# CodeOops — full stack. See .env.example for every tunable value (copy to
+# .env before running). Ollama is deliberately NOT a service here: it stays
+# native on the host (this stack was tuned against a real Ollama.app
+# instance on an 8GB Apple Silicon Mac — containerizing it would mean
+# shipping a multi-GB model inside an image and losing Metal acceleration
+# for no benefit). CodeWiki reaches it via host.docker.internal.
+#
+# No database service: CodeOops has none (in-memory repository/job stores
+# only, confirmed from the actual code, not assumed).
+
+services:
+  codewiki:
+    build: ./codewiki
+    # Pinned explicitly: without this, Compose derives the image name from
+    # the parent directory (e.g. "codeoops-codewiki"), which silently
+    # changes if this project is cloned/copied into a differently-named
+    # folder — breaking any docker save/load instructions built around a
+    # fixed name. See DOCKER_DEPLOYMENT.md.
+    image: codeoops-codewiki:latest
+    container_name: codeoops-codewiki
+    environment:
+      MAIN_MODEL: ${MAIN_MODEL:-codewiki-qwen2.5-16k:latest}
+      FALLBACK_MODEL_1: ${FALLBACK_MODEL_1:-codewiki-qwen2.5-16k:latest}
+      CLUSTER_MODEL: ${CLUSTER_MODEL:-codewiki-qwen2.5-16k:latest}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-dummy}
+      OVERVIEW_ONLY_MODE: ${OVERVIEW_ONLY_MODE:-true}
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-4096}
+      OVERVIEW_MAX_OUTPUT_TOKENS: ${OVERVIEW_MAX_OUTPUT_TOKENS:-1500}
+      EVIDENCE_TOKEN_BUDGET: ${EVIDENCE_TOKEN_BUDGET:-1100}
+      EVIDENCE_MAX_REPRESENTATIVE_FILES: ${EVIDENCE_MAX_REPRESENTATIVE_FILES:-3}
+      LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-1200}
+    ports:
+      - "8001:8000"
+    volumes:
+      - codewiki-output:/app/output
+    extra_hosts:
+      # Docker Desktop (Mac/Windows) resolves this automatically; the entry
+      # is required for the same URL to also work on Linux hosts.
+      - "host.docker.internal:host-gateway"
+    networks:
+      - codeoops-net
+    mem_limit: 2g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  backend:
+    build: ./backend
+    image: codeoops-backend:latest
+    container_name: codeoops-backend
+    environment:
+      DOCUMENTATION_PROVIDER: ${DOCUMENTATION_PROVIDER:-codewiki}
+      CODEWIKI_BASE_URL: ${CODEWIKI_BASE_URL:-http://codewiki:8000}
+      CODEWIKI_OUTPUT_ROOT: /data/codewiki-output
+      ARTIFACT_ROOT: /data/artifacts
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:4200}
+      ALLOWED_REPOSITORY_HOSTS: ${ALLOWED_REPOSITORY_HOSTS:-github.com}
+    ports:
+      - "8000:8000"
+    volumes:
+      - codewiki-output:/data/codewiki-output
+      - codeoops-artifacts:/data/artifacts
+    depends_on:
+      codewiki:
+        condition: service_healthy
+    networks:
+      - codeoops-net
+    mem_limit: 512m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frontend:
+    build: ./frontend
+    image: codeoops-frontend:latest
+    container_name: codeoops-frontend
+    ports:
+      - "4200:80"
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - codeoops-net
+    mem_limit: 128m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+networks:
+  codeoops-net:
+    driver: bridge
+
+volumes:
+  # Shared with codewiki (mounted at /app/output there) — uploaded ZIPs,
+  # extracted repositories, and generated overview.md all live here. This is
+  # the same filesystem-sharing relationship that exists on the desktop
+  # today via a host bind mount (CODEWIKI_OUTPUT_ROOT), just as a named
+  # volume instead so it survives `docker compose down`.
+  codewiki-output:
+  # Backend's own copy of verified overview bytes, keyed by CodeOops job id.
+  codeoops-artifacts:

@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CodeOops — design preview</title>
+<meta name="color-scheme" content="dark" />
+<style>
+/* ============================================================
+   Design preview.
+   A static rendering of the CodeOops UI using the same tokens
+   and CSS as the Angular application (src/styles.scss and the
+   component stylesheets). Nothing here is wired to the API.
+   ============================================================ */
+:root{
+  --co-red-700:#9c0014;--co-red-600:#c4021a;--co-red-500:#e60023;--co-red-400:#ff3b4e;
+  --co-red-glow:rgba(230,0,35,.42);
+  --co-ink-950:#050609;--co-ink-900:#08090c;--co-ink-850:#0b0d12;--co-ink-800:#0f1116;
+  --co-ink-700:#161922;--co-ink-600:#1e222d;--co-ink-500:#2a2f3d;
+  --co-text:#f3f5f9;--co-text-soft:#c2c8d6;--co-text-muted:#8a93a6;--co-text-faint:#5d6577;
+  --co-success:#3dd68c;--co-progress:#f7b955;--co-neutral:#8a93a6;--co-danger:var(--co-red-400);
+  --co-line:rgba(255,255,255,.08);--co-line-strong:rgba(255,255,255,.16);
+  --co-glass:linear-gradient(155deg,rgba(255,255,255,.075) 0%,rgba(255,255,255,.028) 45%,rgba(255,255,255,.012) 100%);
+  --co-shadow-md:0 18px 40px -18px rgba(0,0,0,.85);--co-shadow-lg:0 40px 90px -35px rgba(0,0,0,.95);
+  --co-inner-hairline:inset 0 1px 0 rgba(255,255,255,.07);
+  --co-radius-sm:10px;--co-radius:16px;--co-radius-lg:24px;
+  --co-gutter:clamp(1.25rem,3vw,3rem);--co-max-width:1320px;
+  --co-font:ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Inter,Roboto,sans-serif;
+  --co-mono:ui-monospace,SFMono-Regular,'SF Mono','JetBrains Mono',Menlo,Consolas,monospace;
+  --co-ease:cubic-bezier(.22,.61,.36,1);--co-ease-out:cubic-bezier(.16,1,.3,1);
+  --co-fast:140ms;--co-base:260ms;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;min-height:100dvh;font-family:var(--co-font);font-size:16px;line-height:1.6;
+  color:var(--co-text);background:var(--co-ink-900);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+h1,h2,h3,h4,p{margin:0}
+ul{margin:0;padding:0;list-style:none}
+svg{display:block}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit}
+:where(a,button,input):focus-visible{outline:2px solid var(--co-red-400);outline-offset:3px;border-radius:6px}
+
+/* backdrop */
+.backdrop{position:fixed;inset:0;z-index:-1;overflow:hidden;
+  background:radial-gradient(120% 90% at 78% -10%,rgba(230,0,35,.16) 0%,transparent 55%),
+  radial-gradient(80% 70% at 8% 110%,rgba(120,130,160,.09) 0%,transparent 60%),
+  linear-gradient(180deg,var(--co-ink-900) 0%,var(--co-ink-950) 100%)}
+.grid{position:absolute;inset:-1px;
+  background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px);background-size:68px 68px;
+  mask-image:radial-gradient(105% 80% at 50% 0%,#000 0%,rgba(0,0,0,.35) 45%,transparent 78%)}
+.bloom{position:absolute;border-radius:50%;filter:blur(90px);opacity:.55}
+.bloom--red{width:46vw;height:46vw;top:-16vw;right:-10vw;background:radial-gradient(circle,rgba(230,0,35,.5),transparent 68%)}
+.bloom--cool{width:38vw;height:38vw;bottom:-14vw;left:-8vw;background:radial-gradient(circle,rgba(96,116,168,.36),transparent 70%)}
+@media (prefers-reduced-motion:no-preference){
+  .bloom--red{animation:drift-a 26s var(--co-ease) infinite alternate}
+  .bloom--cool{animation:drift-b 34s var(--co-ease) infinite alternate}}
+@keyframes drift-a{to{transform:translate3d(-6vw,5vh,0) scale(1.12)}}
+@keyframes drift-b{to{transform:translate3d(7vw,-4vh,0) scale(1.08)}}
+
+/* primitives */
+.co-container{width:100%;max-width:var(--co-max-width);margin-inline:auto;padding-inline:var(--co-gutter)}
+.co-glass{position:relative;background:var(--co-glass);border:1px solid var(--co-line);border-radius:var(--co-radius);
+  backdrop-filter:blur(20px) saturate(150%);-webkit-backdrop-filter:blur(20px) saturate(150%);
+  box-shadow:var(--co-shadow-md),var(--co-inner-hairline)}
+.co-panel{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,0)),var(--co-ink-850);
+  border:1px solid var(--co-line);border-radius:var(--co-radius-lg);box-shadow:var(--co-shadow-md),var(--co-inner-hairline)}
+.co-edge-lit{position:relative}
+.co-edge-lit::before{content:'';position:absolute;inset-inline:12%;top:-1px;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);pointer-events:none}
+.co-display{font-size:clamp(2.75rem,6.4vw,5.25rem);line-height:.98;letter-spacing:-.045em;font-weight:700}
+.co-h1{font-size:clamp(1.9rem,3.2vw,2.6rem);line-height:1.1;letter-spacing:-.03em;font-weight:650}
+.co-h2{font-size:clamp(1.35rem,2vw,1.75rem);line-height:1.2;letter-spacing:-.02em;font-weight:600}
+.co-h3{font-size:1.0625rem;line-height:1.35;font-weight:600}
+.co-lede{font-size:clamp(1.02rem,1.35vw,1.2rem);color:var(--co-text-soft);line-height:1.65}
+.co-eyebrow{display:inline-flex;align-items:center;gap:.5rem;font-size:.72rem;font-weight:600;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--co-text-muted)}
+.co-mono{font-family:var(--co-mono);font-size:.86em}
+.co-muted{color:var(--co-text-muted)}
+.co-help{font-size:.82rem;color:var(--co-text-muted)}
+.co-code{font-family:var(--co-mono);font-size:.82rem;padding:.15rem .45rem;border-radius:6px;
+  background:rgba(255,255,255,.06);border:1px solid var(--co-line);color:var(--co-text-soft)}
+.co-btn{display:inline-flex;align-items:center;justify-content:center;gap:.6rem;padding:.8rem 1.35rem;
+  border-radius:999px;border:1px solid var(--btn-border,var(--co-line-strong));background:var(--btn-bg,transparent);
+  color:var(--btn-fg,var(--co-text));font-weight:600;font-size:.94rem;cursor:pointer;white-space:nowrap;
+  transition:transform var(--co-fast) var(--co-ease),box-shadow var(--co-base) var(--co-ease),background var(--co-base) var(--co-ease)}
+.co-btn:hover{transform:translateY(-1px)}
+.co-btn--primary{--btn-bg:linear-gradient(135deg,var(--co-red-500),var(--co-red-700));--btn-fg:#fff;
+  --btn-border:rgba(255,255,255,.18);box-shadow:0 12px 30px -12px var(--co-red-glow),inset 0 1px 0 rgba(255,255,255,.22)}
+.co-btn--primary:hover{box-shadow:0 20px 46px -14px var(--co-red-glow),inset 0 1px 0 rgba(255,255,255,.3)}
+.co-btn--ghost{--btn-bg:rgba(255,255,255,.04)}
+.co-btn--ghost:hover{--btn-bg:rgba(255,255,255,.08)}
+.co-input{width:100%;padding:.95rem 1.1rem;border-radius:var(--co-radius-sm);border:1px solid var(--co-line-strong);
+  background:rgba(5,6,9,.6);color:var(--co-text);font-family:var(--co-mono);font-size:.92rem;
+  transition:border-color var(--co-base) var(--co-ease),box-shadow var(--co-base) var(--co-ease)}
+.co-input::placeholder{color:var(--co-text-faint)}
+.co-input:focus{outline:none;border-color:rgba(230,0,35,.6);background:rgba(5,6,9,.85);box-shadow:0 0 0 4px rgba(230,0,35,.14)}
+.co-label{font-size:.82rem;font-weight:600;color:var(--co-text-soft)}
+
+/* status pill */
+.pill{display:inline-flex;align-items:center;gap:.5rem;padding:.3rem .7rem .3rem .55rem;border-radius:999px;
+  border:1px solid var(--tone-border,var(--co-line-strong));background:var(--tone-bg,rgba(255,255,255,.05));
+  color:var(--tone-fg,var(--co-text-soft));font-size:.74rem;font-weight:650;letter-spacing:.06em;text-transform:uppercase}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor;
+  box-shadow:0 0 0 3px color-mix(in srgb,currentColor 22%,transparent)}
+.pill[data-tone=neutral]{--tone-fg:var(--co-neutral)}
+.pill[data-tone=active]{--tone-fg:var(--co-red-400);--tone-bg:rgba(230,0,35,.1);--tone-border:rgba(230,0,35,.3)}
+.pill[data-tone=success]{--tone-fg:var(--co-success);--tone-bg:rgba(61,214,140,.1);--tone-border:rgba(61,214,140,.28)}
+
+/* logo */
+.logo{display:inline-flex;align-items:center;gap:.7rem}
+.logo .mark{width:38px;height:38px;flex:none;filter:drop-shadow(0 4px 14px rgba(230,0,35,.35))}
+.logo--compact .mark{width:30px;height:30px}
+.wordmark{display:flex;flex-direction:column;line-height:1.1}
+.wordmark__name{font-weight:700;font-size:1.16rem;letter-spacing:-.035em}
+.wordmark__name em{font-style:normal;color:var(--co-red-400)}
+.wordmark__tag{font-size:.68rem;color:var(--co-text-muted)}
+@media (prefers-reduced-motion:no-preference){.core{transform-origin:32px 32px;animation:pulse 3.6s var(--co-ease) infinite}}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(.82);opacity:.7}}
+
+/* preview switcher */
+.switch{position:fixed;left:50%;translate:-50% 0;bottom:1.25rem;z-index:90;display:flex;gap:.25rem;
+  padding:.3rem;border-radius:999px;background:rgba(10,12,16,.85);border:1px solid var(--co-line-strong);
+  backdrop-filter:blur(14px);box-shadow:var(--co-shadow-lg)}
+.switch button{padding:.5rem 1rem;border-radius:999px;border:1px solid transparent;background:transparent;
+  color:var(--co-text-muted);font-size:.85rem;font-weight:600;cursor:pointer;transition:all var(--co-fast) var(--co-ease)}
+.switch button[aria-pressed=true]{color:#fff;background:linear-gradient(135deg,var(--co-red-500),var(--co-red-700));
+  border-color:rgba(255,255,255,.18)}
+.preview-note{position:fixed;top:0;left:0;right:0;z-index:95;padding:.45rem 1rem;text-align:center;
+  font-size:.74rem;letter-spacing:.08em;text-transform:uppercase;color:var(--co-text-faint);
+  background:rgba(5,6,9,.9);border-bottom:1px solid var(--co-line)}
+.screen{display:none;padding-top:1.9rem}
+.screen.is-active{display:block}
+
+/* header */
+.header{position:sticky;top:1.9rem;z-index:60;padding:1rem var(--co-gutter) 0}
+.header__inner{display:flex;align-items:center;gap:1.5rem;max-width:var(--co-max-width);margin-inline:auto;
+  padding:.7rem .75rem .7rem 1rem;border-radius:999px}
+.links{display:flex;gap:.35rem;margin-left:auto}
+.links a{padding:.5rem .85rem;border-radius:999px;font-size:.9rem;font-weight:550;color:var(--co-text-muted)}
+.links a:hover{color:var(--co-text);background:rgba(255,255,255,.06)}
+
+/* hero */
+.hero{padding-block:clamp(3rem,7vw,6.5rem) clamp(2.5rem,5vw,4.5rem)}
+.hero__grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:clamp(2rem,4vw,4rem);align-items:center}
+.eyebrow-dot{width:6px;height:6px;border-radius:50%;background:var(--co-red-500);box-shadow:0 0 0 4px rgba(230,0,35,.16)}
+.hero__title{margin-top:1.1rem}
+.hero__title .accent{background:linear-gradient(120deg,var(--co-red-400),var(--co-red-600));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.hero__tagline{margin-top:.55rem;font-size:clamp(1.1rem,1.9vw,1.5rem);font-weight:600;letter-spacing:-.02em;color:var(--co-text-soft)}
+.hero__lede{margin-top:1.15rem;max-width:46ch}
+.hero__form{margin-top:2rem;padding:clamp(1.1rem,2vw,1.6rem)}
+.hero__note{margin-top:.9rem;font-size:.84rem;color:var(--co-text-faint);max-width:52ch}
+.form-row{display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap}
+.field{flex:1 1 22rem;min-width:0;display:flex;flex-direction:column;gap:.5rem}
+.submit{flex:none;height:3.25rem}
+.feedback{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-top:.85rem}
+
+/* 3D cube */
+.stage{position:relative;display:grid;place-items:center;aspect-ratio:1;width:min(100%,30rem);margin-inline:auto;
+  perspective:1100px;perspective-origin:50% 44%}
+.orbit{position:absolute;border-radius:50%;border:1px solid rgba(255,255,255,.13);transform-style:preserve-3d}
+.orbit--outer{inset:4%;transform:rotateX(74deg);border-color:rgba(230,0,35,.28);
+  box-shadow:0 0 34px rgba(230,0,35,.16),inset 0 0 30px rgba(230,0,35,.08)}
+.orbit--inner{inset:19%;transform:rotateX(68deg) rotateY(22deg);border-color:rgba(255,255,255,.16)}
+.cube{--z:6rem;position:relative;width:12rem;height:12rem;transform-style:preserve-3d;transform:rotateX(-22deg) rotateY(34deg)}
+.face{position:absolute;inset:0;display:grid;place-items:center;border:1px solid rgba(255,255,255,.2);border-radius:6px;
+  background:linear-gradient(140deg,rgba(255,255,255,.14),rgba(255,255,255,.03) 55%,rgba(230,0,35,.09));
+  backdrop-filter:blur(6px);box-shadow:inset 0 0 26px rgba(255,255,255,.06)}
+.face--front{transform:translateZ(var(--z))}
+.face--back{transform:rotateY(180deg) translateZ(var(--z))}
+.face--right{transform:rotateY(90deg) translateZ(var(--z))}
+.face--left{transform:rotateY(-90deg) translateZ(var(--z))}
+.face--top{transform:rotateX(90deg) translateZ(var(--z));background:linear-gradient(140deg,rgba(255,255,255,.2),rgba(255,255,255,.05))}
+.face--bottom{transform:rotateX(-90deg) translateZ(var(--z));background:linear-gradient(140deg,rgba(230,0,35,.22),rgba(0,0,0,.35))}
+.glyph{font-family:var(--co-mono);font-size:1.7rem;font-weight:600;color:rgba(255,255,255,.82);
+  text-shadow:0 0 18px rgba(230,0,35,.55);letter-spacing:-.05em}
+.glyph--sm{font-size:1.15rem;color:rgba(255,255,255,.6)}
+.lines{display:grid;gap:.42rem;width:62%}
+.lines i{display:block;height:3px;border-radius:2px;background:linear-gradient(90deg,rgba(255,255,255,.5),rgba(255,255,255,.12))}
+.shard{position:absolute;width:30px;height:30px;border:1px solid rgba(255,255,255,.22);border-radius:5px;
+  background:linear-gradient(140deg,rgba(255,255,255,.1),rgba(255,255,255,.01));backdrop-filter:blur(3px)}
+.shard--1{top:13%;left:12%;rotate:24deg}
+.shard--2{bottom:20%;right:10%;width:22px;height:22px;rotate:-18deg}
+.shard--3{top:26%;right:16%;width:15px;height:15px;rotate:40deg;border-color:rgba(230,0,35,.45)}
+.node{position:absolute;width:8px;height:8px;border-radius:50%;background:var(--co-red-400);box-shadow:0 0 14px 3px rgba(230,0,35,.6)}
+.node--1{top:47%;left:5%}
+.node--2{bottom:12%;left:34%;background:#fff;box-shadow:0 0 12px 3px rgba(255,255,255,.45)}
+.node--3{top:8%;right:33%;width:6px;height:6px}
+.floor{position:absolute;bottom:8%;width:46%;height:22px;border-radius:50%;
+  background:radial-gradient(ellipse,rgba(230,0,35,.42),transparent 70%);filter:blur(12px)}
+@media (prefers-reduced-motion:no-preference){
+  .cube{animation:tumble 26s linear infinite}
+  .orbit--outer{animation:spin-outer 22s linear infinite}
+  .orbit--inner{animation:spin-inner 16s linear infinite reverse}
+  .shard--1{animation:float 9s var(--co-ease) infinite alternate}
+  .shard--2{animation:float 11s var(--co-ease) infinite alternate-reverse}
+  .shard--3{animation:float 7.5s var(--co-ease) infinite alternate}
+  .node{animation:twinkle 4.5s ease-in-out infinite}
+  .node--2{animation-delay:1.2s}.node--3{animation-delay:2.4s}}
+@keyframes tumble{from{transform:rotateX(-22deg) rotateY(0)}to{transform:rotateX(-22deg) rotateY(360deg)}}
+@keyframes spin-outer{from{transform:rotateX(74deg) rotateZ(0)}to{transform:rotateX(74deg) rotateZ(360deg)}}
+@keyframes spin-inner{from{transform:rotateX(68deg) rotateY(22deg) rotateZ(0)}to{transform:rotateX(68deg) rotateY(22deg) rotateZ(360deg)}}
+@keyframes float{to{transform:translate3d(0,-16px,0) rotate(12deg)}}
+@keyframes twinkle{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* features */
+.features{padding-block:clamp(2.5rem,5vw,4.5rem)}
+.section-head{max-width:54ch;margin-bottom:clamp(1.75rem,3vw,2.75rem)}
+.section-head .co-lede{margin-top:.8rem}
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:clamp(.9rem,1.6vw,1.35rem)}
+.feature{padding:1.5rem 1.4rem;border-radius:var(--co-radius-lg);
+  transition:transform var(--co-base) var(--co-ease-out),border-color var(--co-base) var(--co-ease)}
+.feature:hover{transform:translateY(-4px);border-color:rgba(230,0,35,.28)}
+.feature__icon{display:grid;place-items:center;width:42px;height:42px;margin-bottom:1rem;border-radius:12px;
+  color:var(--co-red-400);border:1px solid rgba(230,0,35,.28);
+  background:linear-gradient(145deg,rgba(230,0,35,.18),rgba(230,0,35,.03));box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+.feature__icon svg{width:21px;height:21px}
+.feature__copy{margin-top:.5rem;font-size:.9rem;line-height:1.6;color:var(--co-text-muted)}
+
+/* pipeline */
+.pipeline{padding-block:clamp(1.5rem,3vw,3rem) clamp(3rem,6vw,5rem)}
+.pipeline__panel{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(1.75rem,3.5vw,3.5rem);
+  padding:clamp(1.5rem,3vw,2.75rem)}
+.pipeline__lede{margin-block:.9rem 1.5rem;max-width:44ch}
+.stages{display:grid;gap:.6rem;align-content:center}
+.stage-row{position:relative;display:flex;align-items:center;gap:.9rem;padding:.85rem 1rem;border-radius:var(--co-radius);
+  border:1px solid var(--co-line);background:rgba(255,255,255,.035)}
+.stage__marker{width:10px;height:10px;border-radius:50%;flex:none;background:var(--co-red-500);box-shadow:0 0 0 4px rgba(230,0,35,.16)}
+.stage--pending{border-style:dashed;border-color:var(--co-line-strong);background:transparent}
+.stage--pending .stage__marker{background:transparent;border:2px solid var(--co-text-faint);box-shadow:none}
+.stage__body{display:flex;flex-direction:column;min-width:0}
+.stage__name{font-weight:650;font-size:.96rem}
+.stage__role{font-size:.8rem;color:var(--co-text-muted)}
+.stage__flag{margin-left:auto;font-size:.7rem;font-weight:650;letter-spacing:.1em;text-transform:uppercase;color:var(--co-text-faint)}
+
+/* ---------- workspace ---------- */
+.shell{display:grid;grid-template-columns:17rem minmax(0,1fr);gap:clamp(1rem,1.6vw,1.75rem);
+  padding:clamp(1rem,1.6vw,1.75rem);min-height:100dvh;align-items:start}
+.rail{position:sticky;top:3.5rem;display:flex;flex-direction:column;gap:1.5rem;padding:1.4rem 1.1rem;border-radius:var(--co-radius-lg)}
+.nav{flex:1}
+.nav ul{display:grid;gap:.25rem}
+.nav__link{display:flex;align-items:center;gap:.75rem;padding:.62rem .75rem;border-radius:var(--co-radius-sm);
+  color:var(--co-text-muted);font-size:.92rem;font-weight:550;border:1px solid transparent}
+.nav__link:hover{color:var(--co-text);background:rgba(255,255,255,.05)}
+.nav__link.is-active{color:var(--co-text);background:linear-gradient(100deg,rgba(230,0,35,.2),rgba(230,0,35,.04));
+  border-color:rgba(230,0,35,.32)}
+.nav__icon{width:18px;height:18px;flex:none}
+.engine{padding:.85rem .9rem;border-radius:var(--co-radius-sm);border:1px solid var(--co-line);background:rgba(0,0,0,.28)}
+.engine__label{font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--co-text-faint)}
+.engine__value{display:flex;align-items:center;gap:.45rem;margin-top:.35rem;font-size:.84rem;font-weight:600;color:var(--co-text-soft)}
+.engine__dot{width:7px;height:7px;border-radius:50%;background:var(--co-neutral);box-shadow:0 0 0 3px rgba(138,147,166,.18)}
+.engine__hint{margin-top:.4rem;font-size:.74rem;line-height:1.45;color:var(--co-text-faint)}
+
+.workspace{display:grid;gap:clamp(1.1rem,2vw,1.75rem);padding-block:.5rem 2rem}
+.repo{position:relative;padding:clamp(1.25rem,2.4vw,2rem);display:grid;gap:1.35rem}
+.repo__main{display:flex;align-items:flex-start;justify-content:space-between;gap:1.75rem;flex-wrap:wrap}
+.repo__name{margin-top:.55rem}
+.repo__owner{color:var(--co-text-muted);font-weight:500}
+.repo__url{display:inline-block;margin-top:.5rem;color:var(--co-text-faint);text-decoration:underline;text-underline-offset:3px}
+.repo__states{display:flex;gap:1.5rem;flex-wrap:wrap}
+.repo__state{display:grid;gap:.4rem;justify-items:start}
+.repo__state-label{font-size:.66rem;letter-spacing:.13em;text-transform:uppercase;color:var(--co-text-faint)}
+.repo__facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(11rem,1fr));gap:1rem 1.75rem;
+  padding-top:1.15rem;border-top:1px solid var(--co-line)}
+.repo__facts dt{font-size:.66rem;letter-spacing:.13em;text-transform:uppercase;color:var(--co-text-faint)}
+.repo__facts dd{margin:.25rem 0 0;font-size:.88rem;color:var(--co-text-soft);overflow-wrap:anywhere}
+.content{display:grid;grid-template-columns:15rem minmax(0,1fr);gap:clamp(1rem,1.8vw,1.5rem);align-items:start}
+.doc-nav{position:sticky;top:1.5rem;display:grid;gap:.9rem;padding:.9rem;border-radius:var(--co-radius-lg);
+  border:1px solid var(--co-line);background:rgba(0,0,0,.24)}
+.doc-nav ul{display:grid;gap:.2rem}
+.doc-nav__item{width:100%;display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.58rem .7rem;
+  border-radius:var(--co-radius-sm);border:1px solid transparent;background:transparent;color:var(--co-text-muted);
+  font-size:.9rem;font-weight:550;text-align:left;cursor:pointer}
+.doc-nav__item:hover{color:var(--co-text);background:rgba(255,255,255,.05)}
+.doc-nav__item.is-active{color:var(--co-text);background:linear-gradient(100deg,rgba(230,0,35,.18),rgba(230,0,35,.03));
+  border-color:rgba(230,0,35,.3)}
+.doc-nav__badge{font-size:.6rem;letter-spacing:.11em;text-transform:uppercase;color:var(--co-text-faint);
+  border:1px solid var(--co-line);border-radius:999px;padding:.1rem .4rem;flex:none}
+.doc-nav__note{font-size:.74rem;line-height:1.5;color:var(--co-text-faint);padding-top:.7rem;border-top:1px solid var(--co-line)}
+.doc-body{padding:clamp(1.25rem,2.4vw,2rem);min-height:26rem}
+.viewer{display:grid;gap:clamp(1.25rem,2.2vw,1.9rem)}
+.viewer__head{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:clamp(1.25rem,2.5vw,2.5rem);
+  align-items:start;padding-bottom:1.35rem;border-bottom:1px solid var(--co-line)}
+.viewer__title{margin-top:.6rem}
+.viewer__sub{margin-top:.5rem;color:var(--co-text-muted);font-size:.92rem;max-width:52ch}
+.viewer__meta{display:grid;grid-template-columns:repeat(2,minmax(0,auto));gap:.85rem 1.75rem}
+.viewer__meta dt{font-size:.66rem;letter-spacing:.13em;text-transform:uppercase;color:var(--co-text-faint)}
+.viewer__meta dd{margin:.2rem 0 0;font-size:.88rem;color:var(--co-text-soft)}
+.empty{display:grid;justify-items:center;text-align:center;gap:.6rem;padding:clamp(2rem,5vw,3.75rem) clamp(1rem,3vw,2.5rem);
+  border-radius:var(--co-radius-lg);border:1px dashed var(--co-line-strong);
+  background:radial-gradient(90% 70% at 50% 0%,rgba(230,0,35,.07),transparent 70%),rgba(0,0,0,.22)}
+.empty__title{margin-top:.4rem;font-size:clamp(1.15rem,2vw,1.45rem);font-weight:650;letter-spacing:-.02em}
+.empty__body{color:var(--co-text-soft);font-size:.95rem;max-width:46ch}
+.empty__detail{font-size:.86rem;color:var(--co-text-muted);max-width:52ch}
+.empty__rule{margin-top:.75rem;padding:.7rem 1rem;border-radius:var(--co-radius-sm);border:1px solid var(--co-line);
+  background:rgba(255,255,255,.03);font-size:.82rem;line-height:1.55;color:var(--co-text-muted);max-width:56ch}
+.prism-stage{position:relative;display:grid;place-items:center;width:160px;height:160px;perspective:800px}
+.prism{position:relative;width:84px;height:108px;transform-style:preserve-3d;transform:rotateX(-12deg) rotateY(28deg)}
+.pane{position:absolute;inset:0;border-radius:8px;border:1px solid rgba(255,255,255,.2);
+  background:linear-gradient(150deg,rgba(255,255,255,.13),rgba(255,255,255,.02) 60%,rgba(230,0,35,.08));
+  backdrop-filter:blur(5px);box-shadow:inset 0 1px 0 rgba(255,255,255,.16)}
+.pane--a{transform:rotateY(0) translateZ(24px)}
+.pane--b{transform:rotateY(120deg) translateZ(24px)}
+.pane--c{transform:rotateY(240deg) translateZ(24px)}
+.halo{position:absolute;bottom:14px;width:96px;height:18px;border-radius:50%;
+  background:radial-gradient(ellipse,rgba(230,0,35,.32),transparent 70%);filter:blur(9px)}
+@media (prefers-reduced-motion:no-preference){.prism{animation:rotate 18s linear infinite}}
+@keyframes rotate{from{transform:rotateX(-12deg) rotateY(0)}to{transform:rotateX(-12deg) rotateY(360deg)}}
+.diagram{border-radius:var(--co-radius-lg);border:1px solid var(--co-line);overflow:hidden}
+.diagram__head{display:flex;align-items:center;justify-content:space-between;gap:1rem;padding:.85rem 1.15rem;
+  border-bottom:1px solid var(--co-line);background:rgba(255,255,255,.03)}
+.diagram__flag{font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;color:var(--co-text-faint)}
+.diagram__canvas{display:grid;place-items:center;min-height:13rem;padding:1.5rem;
+  background-image:linear-gradient(rgba(255,255,255,.04) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(255,255,255,.04) 1px,transparent 1px);background-size:26px 26px}
+.diagram__note{font-size:.86rem;color:var(--co-text-faint);text-align:center;max-width:44ch}
+
+@media (max-width:1024px){
+  .hero__grid,.pipeline__panel{grid-template-columns:minmax(0,1fr)}
+  .hero__visual{order:-1}
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .rail{position:static;flex-direction:row;align-items:center;padding:.85rem 1rem}
+  .nav ul{grid-auto-flow:column;gap:.35rem}
+  .engine{display:none}}
+@media (max-width:900px){
+  .content,.viewer__head{grid-template-columns:minmax(0,1fr)}
+  .doc-nav{position:static}
+  .doc-nav ul{grid-auto-flow:column;grid-auto-columns:max-content;overflow-x:auto}}
+@media (max-width:860px){.links{display:none}}
+@media (max-width:640px){.cube{--z:4rem;width:8rem;height:8rem}.glyph{font-size:1.2rem}}
+</style>
+</head>
+<body>
+
+<div class="backdrop" aria-hidden="true">
+  <div class="grid"></div><div class="bloom bloom--red"></div><div class="bloom bloom--cool"></div>
+</div>
+
+<p class="preview-note">Static design preview of the CodeOops Angular UI — not connected to the API</p>
+
+<!-- ============================== LANDING ============================== -->
+<div class="screen is-active" id="screen-landing">
+  <header class="header">
+    <div class="header__inner co-glass co-edge-lit">
+      <span class="logo">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ff3b4e"/><stop offset="1" stop-color="#c4021a"/></linearGradient></defs>
+          <path d="M32 6 55 19v26L32 58 9 45V19z" fill="none" stroke="url(#g1)" stroke-width="3" stroke-linejoin="round"/>
+          <path d="M32 17 45 24.5v15L32 47l-13-7.5v-15z" fill="none" stroke="rgba(255,255,255,.22)" stroke-width="1.5" stroke-linejoin="round"/>
+          <circle class="core" cx="32" cy="32" r="5.5" fill="url(#g1)"/>
+        </svg>
+        <span class="wordmark"><span class="wordmark__name">Code<em>Oops</em></span>
+        <span class="wordmark__tag">Your code broke. Your docs shouldn't.</span></span>
+      </span>
+      <nav class="links"><a href="#">Repositories</a><a href="#">Workspace</a><a href="#">Settings</a></nav>
+      <a class="co-btn co-btn--ghost" href="#" onclick="showScreen('workspace');return false">Open workspace →</a>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="co-container hero__grid">
+        <div>
+          <p class="co-eyebrow"><span class="eyebrow-dot"></span>Repository documentation platform</p>
+          <h1 class="co-display hero__title">Code<span class="accent">Oops</span></h1>
+          <p class="hero__tagline">Your code broke. Your docs shouldn't.</p>
+          <p class="co-lede hero__lede">Turn any GitHub repository into structured technical documentation
+            powered by CodeWiki. CodeOops handles submission, tracking and rendering — the documentation
+            itself is produced by the engine, never by us.</p>
+
+          <div class="hero__form co-panel co-edge-lit">
+            <div class="form-row">
+              <div class="field">
+                <label class="co-label" for="preview-url">GitHub repository URL</label>
+                <input class="co-input" id="preview-url" type="url" placeholder="https://github.com/owner/repository" />
+              </div>
+              <button class="co-btn co-btn--primary submit" type="button">Generate Documentation →</button>
+            </div>
+            <div class="feedback">
+              <p class="co-help">Public GitHub repositories, e.g. <code class="co-code">https://github.com/owner/repository</code></p>
+              <span class="pill" data-tone="neutral"><span class="dot"></span>Idle</span>
+            </div>
+          </div>
+
+          <p class="hero__note">Submitting registers the repository and returns a stable ID.
+            Generation begins once the CodeWiki integration is enabled.</p>
+        </div>
+
+        <div class="hero__visual">
+          <div class="stage">
+            <div class="orbit orbit--outer"></div><div class="orbit orbit--inner"></div>
+            <div class="cube">
+              <span class="face face--front"><span class="glyph">{ }</span></span>
+              <span class="face face--back"></span>
+              <span class="face face--right"><span class="glyph glyph--sm">.md</span></span>
+              <span class="face face--left"><span class="lines"><i style="width:62%"></i><i style="width:84%"></i><i style="width:44%"></i><i style="width:71%"></i></span></span>
+              <span class="face face--top"></span><span class="face face--bottom"></span>
+            </div>
+            <span class="shard shard--1"></span><span class="shard shard--2"></span><span class="shard shard--3"></span>
+            <span class="node node--1"></span><span class="node node--2"></span><span class="node node--3"></span>
+            <div class="floor"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="features">
+      <div class="co-container">
+        <div class="section-head">
+          <h2 class="co-h1">What the workspace gives you</h2>
+          <p class="co-lede">One surface for every repository you track, with the documentation engine
+            kept at arm's length behind a single boundary.</p>
+        </div>
+        <ul class="feature-grid" id="feature-grid"></ul>
+      </div>
+    </section>
+
+    <section class="pipeline">
+      <div class="co-container">
+        <div class="pipeline__panel co-panel">
+          <div>
+            <p class="co-eyebrow">The boundary</p>
+            <h2 class="co-h2">CodeOops orchestrates. CodeWiki documents.</h2>
+            <p class="co-lede pipeline__lede">There is no second documentation engine here, no language model
+              in the request path and no fallback document. If the engine has not produced an artifact,
+              the workspace says exactly that.</p>
+            <a class="co-btn co-btn--ghost" href="#" onclick="showScreen('workspace');return false">Open the workspace</a>
+          </div>
+          <ol class="stages" id="stages"></ol>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- ============================= WORKSPACE ============================= -->
+<div class="screen" id="screen-workspace">
+  <div class="shell">
+    <aside class="rail co-glass">
+      <span class="logo logo--compact">
+        <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+          <defs><linearGradient id="g2" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ff3b4e"/><stop offset="1" stop-color="#c4021a"/></linearGradient></defs>
+          <path d="M32 6 55 19v26L32 58 9 45V19z" fill="none" stroke="url(#g2)" stroke-width="3" stroke-linejoin="round"/>
+          <circle class="core" cx="32" cy="32" r="5.5" fill="url(#g2)"/>
+        </svg>
+        <span class="wordmark"><span class="wordmark__name">Code<em>Oops</em></span></span>
+      </span>
+      <nav class="nav"><ul id="rail-nav"></ul></nav>
+      <div class="engine">
+        <p class="engine__label">Documentation engine</p>
+        <p class="engine__value"><span class="engine__dot"></span>CodeWiki — not connected</p>
+        <p class="engine__hint">Integration lands in the next phase. Nothing is generated locally.</p>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="repo co-panel co-edge-lit">
+        <div class="repo__main">
+          <div>
+            <p class="co-eyebrow">Repository</p>
+            <h1 class="co-h1 repo__name"><span class="repo__owner">Akriti011/</span>india-map-explorer</h1>
+            <a class="repo__url co-mono" href="#">https://github.com/Akriti011/india-map-explorer</a>
+          </div>
+          <div class="repo__states">
+            <div class="repo__state"><span class="repo__state-label">Repository</span>
+              <span class="pill" data-tone="active"><span class="dot"></span>Ready</span></div>
+            <div class="repo__state"><span class="repo__state-label">Generation</span>
+              <span class="pill" data-tone="neutral"><span class="dot"></span>Not generated</span></div>
+          </div>
+        </div>
+        <dl class="repo__facts">
+          <div><dt>Default branch</dt><dd>main</dd></div>
+          <div><dt>Repository ID</dt><dd class="co-mono">c0284f2c-0951-4d0e-aa9e-e890b2bcc61b</dd></div>
+          <div><dt>Engine</dt><dd>CodeWiki — not connected</dd></div>
+        </dl>
+      </header>
+
+      <div class="content">
+        <nav class="doc-nav">
+          <ul id="doc-nav"></ul>
+          <p class="doc-nav__note">Sections are the shape of the reader. They fill in only from engine output.</p>
+        </nav>
+
+        <div class="doc-body co-panel">
+          <article class="viewer">
+            <header class="viewer__head">
+              <div>
+                <p class="co-eyebrow" id="section-label">Overview</p>
+                <h2 class="co-h1 viewer__title" id="section-title">india-map-explorer — Overview</h2>
+                <p class="viewer__sub" id="section-desc">High-level summary of what the repository does.</p>
+              </div>
+              <dl class="viewer__meta">
+                <div><dt>Repository</dt><dd class="co-mono">Akriti011/india-map-explorer</dd></div>
+                <div><dt>Branch</dt><dd>main</dd></div>
+                <div><dt>Engine</dt><dd>CodeWiki (not connected)</dd></div>
+                <div><dt>Generated</dt><dd>—</dd></div>
+              </dl>
+            </header>
+
+            <section class="empty">
+              <div class="prism-stage">
+                <div class="prism"><span class="pane pane--a"></span><span class="pane pane--b"></span><span class="pane pane--c"></span></div>
+                <div class="halo"></div>
+              </div>
+              <h3 class="empty__title">No CodeWiki documentation available.</h3>
+              <p class="empty__body">Documentation has not been generated yet for
+                <span class="co-mono">Akriti011/india-map-explorer</span>.</p>
+              <p class="empty__detail">No documentation provider is connected. CodeWiki integration is not enabled in this build.</p>
+              <p class="empty__rule">CodeOops does not write documentation itself. Nothing appears in this
+                reader until CodeWiki has produced an artifact for this repository.</p>
+            </section>
+
+            <section class="diagram">
+              <div class="diagram__head"><h3 class="co-h3">Architecture visualization</h3>
+                <span class="diagram__flag">Mermaid-ready</span></div>
+              <div class="diagram__canvas">
+                <p class="diagram__note">Diagrams are rendered from the engine's own Mermaid output.
+                  There is nothing to render yet.</p>
+              </div>
+            </section>
+          </article>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="switch" role="group" aria-label="Preview screen">
+  <button type="button" aria-pressed="true" onclick="showScreen('landing')">Landing</button>
+  <button type="button" aria-pressed="false" onclick="showScreen('workspace')">Workspace</button>
+</div>
+
+<script>
+const FEATURES=[
+ ['Repository Analysis','Point CodeOops at a repository and it becomes a tracked unit of work with a stable identity.','M3 6.2 10 2.6l7 3.6-7 3.6zM3 10l7 3.6 7-3.6M3 13.8 10 17.4l7-3.6'],
+ ['Architecture Documentation','Subsystem boundaries and how they compose — written by the documentation engine, not by us.','M4 16V7l6-4 6 4v9M4 16h12M8 16v-4h4v4'],
+ ['Code Structure','Module trees and per-module pages, navigable from a single workspace.','M7 4H4v3h3zM16 4h-3v3h3zM11.5 13h-3v3h3zM5.5 7v3h9V7M10 10v3'],
+ ['Dependency Understanding','Internal and external relationships surfaced as a graph you can actually read.','M6 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM14 17.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM15 6.5a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM6 6.5v5a4 4 0 0 0 4 4h2M15 6.5v1a4 4 0 0 1-4 4H8']];
+document.getElementById('feature-grid').innerHTML=FEATURES.map(([t,c,d])=>
+ `<li class="feature co-glass"><span class="feature__icon"><svg viewBox="0 0 20 20"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+  <h3 class="co-h3">${t}</h3><p class="feature__copy">${c}</p></li>`).join('');
+
+const STAGES=[['Angular','Workspace UI',1],['FastAPI','Orchestration API',1],
+ ['Documentation Provider','Engine boundary',1],['CodeWiki','Documentation engine',0]];
+document.getElementById('stages').innerHTML=STAGES.map(([n,r,live])=>
+ `<li class="stage-row ${live?'':'stage--pending'}"><span class="stage__marker"></span>
+  <span class="stage__body"><span class="stage__name">${n}</span><span class="stage__role">${r}</span></span>
+  <span class="stage__flag">${live?'Built':'Next phase'}</span></li>`).join('');
+
+const NAV=[['New Repository','M10 4v12M4 10h12',0],['Repositories','M3 6.5 10 3l7 3.5-7 3.5zM3 10l7 3.5L17 10M3 13.5 10 17l7-3.5',0],
+ ['Documentation','M5 3h7l3 3v11H5zM12 3v3h3M7.5 10h5M7.5 13h3.5',1],
+ ['Settings','M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4M15.3 15.3l-1.4-1.4M6.1 6.1 4.7 4.7',0]];
+document.getElementById('rail-nav').innerHTML=NAV.map(([l,d,active])=>
+ `<li><a class="nav__link ${active?'is-active':''}" href="#"><svg class="nav__icon" viewBox="0 0 20 20"><path d="${d}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span>${l}</span></a></li>`).join('');
+
+const SECTIONS=[['overview','Overview','High-level summary of what the repository does.'],
+ ['architecture','Architecture','Subsystems, boundaries and how they fit together.'],
+ ['modules','Modules','Per-module documentation derived from the module tree.'],
+ ['data-flow','Data Flow','How data moves between components at runtime.'],
+ ['dependencies','Dependencies','Internal and external dependency relationships.']];
+function renderDocNav(activeId){
+  document.getElementById('doc-nav').innerHTML=SECTIONS.map(([id,label])=>
+   `<li><button type="button" class="doc-nav__item ${id===activeId?'is-active':''}" onclick="selectSection('${id}')">
+    <span>${label}</span><span class="doc-nav__badge">empty</span></button></li>`).join('');
+}
+function selectSection(id){
+  const s=SECTIONS.find(x=>x[0]===id);
+  document.getElementById('section-label').textContent=s[1];
+  document.getElementById('section-title').textContent='india-map-explorer — '+s[1];
+  document.getElementById('section-desc').textContent=s[2];
+  renderDocNav(id);
+}
+renderDocNav('overview');
+
+function showScreen(name){
+  for(const el of document.querySelectorAll('.screen')) el.classList.remove('is-active');
+  document.getElementById('screen-'+name).classList.add('is-active');
+  const buttons=document.querySelectorAll('.switch button');
+  buttons[0].setAttribute('aria-pressed', String(name==='landing'));
+  buttons[1].setAttribute('aria-pressed', String(name==='workspace'));
+  window.scrollTo(0,0);
+}
+</script>
+</body>
+</html>
