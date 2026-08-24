@@ -49,14 +49,17 @@ def _public_surface(
     return lines, len(candidates)
 
 
-def _weighted_edges(
+def _module_edge_weights(
     module_name: str,
     module_files: List[str],
     components: Dict[str, Node],
     file_to_module: Dict[str, str],
-) -> Tuple[List[str], int]:
-    """Cross-module dependency weights: how many depends_on links run from
-    this module's own components into each other module."""
+) -> Dict[str, int]:
+    """Raw depends_on walk: how many links run from this module's own
+    components into each other module. Shared by _weighted_edges below (the
+    "Depends on" section fed to the map step) and
+    overview_mapreduce.py's deterministic architecture-diagram edge
+    aggregation — the same traversal, not reimplemented twice."""
     file_set = set(module_files)
     weights: Dict[str, int] = {}
     for node in components.values():
@@ -70,6 +73,18 @@ def _weighted_edges(
             if target_module is None or target_module == module_name:
                 continue
             weights[target_module] = weights.get(target_module, 0) + 1
+    return weights
+
+
+def _weighted_edges(
+    module_name: str,
+    module_files: List[str],
+    components: Dict[str, Node],
+    file_to_module: Dict[str, str],
+) -> Tuple[List[str], int]:
+    """Cross-module dependency weights: how many depends_on links run from
+    this module's own components into each other module."""
+    weights = _module_edge_weights(module_name, module_files, components, file_to_module)
     ranked = sorted(weights.items(), key=lambda kv: kv[1], reverse=True)
     lines = [f"-> {name} ({count} reference(s))" for name, count in ranked[:_MAX_EDGES]]
     return lines, len(ranked)

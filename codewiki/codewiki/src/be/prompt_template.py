@@ -295,14 +295,15 @@ THE FIVE-SECOND TEST — a reader looking only at Purpose, the architecture diag
 - Name what is NOT present, when supported, using: "No evidence of X was identified in the analyzed repository."
 - If something else cannot be established, write exactly "Not explicitly identified in the repository." Do not invent component counts, commit hashes, technologies, or a generation timestamp.
 - A smaller, accurate architecture beats a larger fabricated one. Omit any section below with no supporting evidence rather than padding it.
+- Do not produce any Mermaid diagrams, code blocks, or image links. Prose only. Never write ![...](...) — you cannot produce images.
 </GROUND_RULES>
 
 <REQUIRED_STRUCTURE>
 Include each section when the module purposes support it; omit outright otherwise. Open with a short table of contents listing only the sections you included.
 
 1. Purpose — what the system is, the real problem it solves, its type, primary users if discoverable
-2. End-to-End Architecture — the primary HLD section: actual layers/subsystems (map module boundaries onto architectural layers where they align), major components, meaningful relationships, one Mermaid architecture diagram if evidenced
-3. System Data Flow — what happens to a request/event/record as it moves through the modules described below, using only stages the module purposes support; one Mermaid diagram, meaningfully different from the architecture diagram
+2. End-to-End Architecture — the primary HLD section: actual layers/subsystems (map module boundaries onto architectural layers where they align), major components, meaningful relationships
+3. System Data Flow — what happens to a request/event/record as it moves through the modules described below, using only stages the module purposes support
 4. Core Components — group by architectural responsibility, each with name, purpose, and which module it lives in
 5. Key Execution Flows — only flows the module purposes actually support
 6. External Integrations — actual external systems only, each with mechanism and purpose
@@ -313,10 +314,6 @@ Include each section when the module purposes support it; omit outright otherwis
 11. Getting Started / Operational Entry Points — only if a module purpose describes one
 12. Architectural Summary — a senior-engineer close: system type, primary architecture, major components, primary data flow, external dependencies, and important architectural absences
 </REQUIRED_STRUCTURE>
-
-<MERMAID_RULES>
-At most 2 diagrams (architecture + data flow). Real module/component names as labels only — never placeholder identifiers like A, B, C. Omit a diagram rather than mislead. The two diagrams, when both present, must differ meaningfully.
-</MERMAID_RULES>
 
 <MODULE_PURPOSES>
 {module_purposes}
