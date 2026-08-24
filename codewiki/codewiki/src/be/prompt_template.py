@@ -244,6 +244,90 @@ overview_content
 </OVERVIEW>
 """.strip()
 
+# Used exclusively by overview_mapreduce.py's map step (OVERVIEW_MODE=mapreduce)
+# — one bounded call per directory-shaped module, at a small Ollama context
+# (2048, measured to stay on 100% GPU on this hardware; see llm_services.py).
+# Never used by overview_only mode or the legacy clustered path.
+MAP_MODULE_PROMPT = """
+You are analyzing ONE module of a larger repository, `{module_name}` — not the whole repository. Everything you need is in the structured facts below, extracted deterministically from the dependency graph and the repository's own files. Do not invent behavior, dependencies, or capabilities the facts don't show, and do not describe the repository as a whole — only this module.
+
+<GROUND_RULES>
+- Every claim traces to the facts below. If the facts don't show something, don't say it.
+- A dependency name is not a behavior. Describe what this module actually does, not what its imports could theoretically be used for.
+- Use real names from the facts — actual file, class, and function names, not generic labels.
+</GROUND_RULES>
+
+Produce exactly three tagged fields and nothing else:
+
+<PURPOSE>
+One sentence, 25 words or fewer, stating specifically what THIS module does. It must be concrete enough that it could not describe a different module in this repository — name the real responsibility (e.g. "Talks to the CodeWiki HTTP API and reads its shared-volume output for a completed job"), never a generic statement (e.g. "Provides functionality for the application").
+</PURPOSE>
+
+<DETAIL>
+2-4 sentences: the module's main components, what it depends on or is depended on by, and any I/O or integration behavior shown in the facts. Grounded only in the evidence below.
+</DETAIL>
+
+<SOURCES>
+The file paths from "Files" below that most directly support PURPOSE and DETAIL — only the ones you actually drew on, not the whole list.
+</SOURCES>
+
+<MODULE_FACTS>
+{module_descriptor}
+</MODULE_FACTS>
+
+Write clean, valid Markdown inside the tags, nothing outside them, no code fence around your answer.
+""".strip()
+
+# Used exclusively by overview_mapreduce.py's reduce step — one bounded call
+# at a larger Ollama context (8192). Consumes ONLY each module's <PURPOSE>
+# line (<=25 words each) by design: DETAIL and SOURCES stay in the map
+# output for provenance but are deliberately not sent here, keeping this
+# prompt small regardless of repository size (MAX_MODULES caps module count).
+REDUCE_OVERVIEW_PROMPT = """
+You are a senior software architect. Below is one sentence per module of `{repo_name}`, each independently written by analyzing that module's own files and dependencies — not by you, and not from reading the whole repository at once. Synthesize these into `overview.md`, the repository's HLD. This is the only documentation this workflow produces — no module docs, no per-file docs, no second file.
+
+THE FIVE-SECOND TEST — a reader looking only at Purpose, the architecture diagram, and the data-flow diagram must, within about five seconds, grasp what the repository is, its major architectural building blocks, how those blocks interact, and what major architectural elements are notably absent. A document that passes the test with generic content still fails.
+
+<GROUND_RULES>
+- Every claim traces to the module purposes below. Never invent a component, database, API, or integration no module purpose supports.
+- Never assume a universal shape (User -> Frontend -> Backend -> Database) unless the module purposes actually describe that shape.
+- Treat each module's directory-derived name as its real name — do not invent friendlier labels.
+- Name what is NOT present, when supported, using: "No evidence of X was identified in the analyzed repository."
+- If something else cannot be established, write exactly "Not explicitly identified in the repository." Do not invent component counts, commit hashes, technologies, or a generation timestamp.
+- A smaller, accurate architecture beats a larger fabricated one. Omit any section below with no supporting evidence rather than padding it.
+</GROUND_RULES>
+
+<REQUIRED_STRUCTURE>
+Include each section when the module purposes support it; omit outright otherwise. Open with a short table of contents listing only the sections you included.
+
+1. Purpose — what the system is, the real problem it solves, its type, primary users if discoverable
+2. End-to-End Architecture — the primary HLD section: actual layers/subsystems (map module boundaries onto architectural layers where they align), major components, meaningful relationships, one Mermaid architecture diagram if evidenced
+3. System Data Flow — what happens to a request/event/record as it moves through the modules described below, using only stages the module purposes support; one Mermaid diagram, meaningfully different from the architecture diagram
+4. Core Components — group by architectural responsibility, each with name, purpose, and which module it lives in
+5. Key Execution Flows — only flows the module purposes actually support
+6. External Integrations — actual external systems only, each with mechanism and purpose
+7. Configuration and Deployment — only what the module purposes evidence
+8. Key Features / Capabilities — real capabilities, stated plainly, no marketing language
+9. Security and Reliability — only where evidenced; otherwise state plainly none was identified
+10. Technology Stack — only what the module purposes evidence
+11. Getting Started / Operational Entry Points — only if a module purpose describes one
+12. Architectural Summary — a senior-engineer close: system type, primary architecture, major components, primary data flow, external dependencies, and important architectural absences
+</REQUIRED_STRUCTURE>
+
+<MERMAID_RULES>
+At most 2 diagrams (architecture + data flow). Real module/component names as labels only — never placeholder identifiers like A, B, C. Omit a diagram rather than mislead. The two diagrams, when both present, must differ meaningfully.
+</MERMAID_RULES>
+
+<MODULE_PURPOSES>
+{module_purposes}
+</MODULE_PURPOSES>
+
+Write clean, valid Markdown. Start with `# {repo_name}` as the top heading — never title the document "overview.md" and never wrap your answer in a code fence; the whole response IS the Markdown file. Put nothing outside the tags below:
+<OVERVIEW>
+overview_content
+</OVERVIEW>
+""".strip()
+
 MODULE_OVERVIEW_PROMPT = """
 You are an AI documentation assistant. Your task is to generate a brief overview of `{module_name}` module.
 

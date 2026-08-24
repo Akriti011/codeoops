@@ -43,12 +43,15 @@ class LLMBackend(abc.ABC):
         model: str | None = None,
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        num_ctx: int | None = None,
     ) -> str:
         """Single-shot text completion.
 
         ``max_tokens`` bounds this call's output without changing the
         backend's configured default (``config.max_tokens``) for other
-        callers.
+        callers. ``num_ctx`` likewise overrides the Ollama context window
+        for this one call only (ignored for non-Ollama endpoints and
+        subscription-CLI backends, which don't expose it).
         """
 
     @abc.abstractmethod

@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 from codewiki.src.be.dependency_analyzer import DependencyGraphBuilder
 from codewiki.src.be.backend import LLMBackend, get_backend
 from codewiki.src.be import evidence_extractor
+from codewiki.src.be import overview_mapreduce
 from codewiki.src.be.prompt_template import (
     REPO_OVERVIEW_PROMPT,
     MODULE_OVERVIEW_PROMPT,
@@ -286,6 +287,51 @@ class DocumentationGenerator:
         
         return working_dir
 
+    async def generate_overview_via_mapreduce(
+        self, components: Dict[str, Any], leaf_nodes: List[str]
+    ) -> str:
+        """Generate overview.md via overview_mapreduce.py's group -> map ->
+        reduce pipeline (OVERVIEW_MODE=mapreduce). A separate strategy from
+        generate_overview_only() below, which this never calls into or
+        modifies — that stays the default single-call fast path.
+        """
+        working_dir = os.path.abspath(self.config.docs_dir)
+        file_manager.ensure_directory(working_dir)
+
+        overview_path = os.path.join(working_dir, OVERVIEW_FILENAME)
+        if os.path.exists(overview_path):
+            logger.info(f"✓ Overview already exists at {overview_path}")
+            return working_dir
+
+        repo_name = os.path.basename(os.path.normpath(self.config.repo_path))
+        logger.info(
+            "Generating overview via map-reduce (overview_mode=mapreduce) for %s: "
+            "%d component(s), %d leaf node(s)",
+            repo_name, len(components), len(leaf_nodes),
+        )
+
+        try:
+            result = overview_mapreduce.run_mapreduce(
+                self.config, self.backend, components, leaf_nodes, repo_name
+            )
+        except Exception as e:
+            logger.error(f"Error generating map-reduce overview for {repo_name}: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
+
+        file_manager.save_text(result.overview_markdown, overview_path)
+        logger.info(
+            "Map-reduce overview written: path=%s bytes=%d mapped=%d failed=%d",
+            overview_path, os.path.getsize(overview_path),
+            len(result.mapped), len(result.failed_modules),
+        )
+        if result.failed_modules:
+            logger.warning(
+                "Map-reduce: %d module(s) failed and were excluded: %s",
+                len(result.failed_modules), ", ".join(result.failed_modules),
+            )
+        return working_dir
+
     async def generate_overview_only(self, components: Dict[str, Any], leaf_nodes: List[str]) -> str:
         """Generate exactly one overview.md via a single bounded, non-agentic
         completion call.
@@ -417,6 +463,23 @@ class DocumentationGenerator:
             logger.debug(f"Found {len(leaf_nodes)} leaf nodes")
             # logger.debug(f"Leaf nodes:\n{'\n'.join(sorted(leaf_nodes)[:200])}")
             # exit()
+
+            if self.config.overview_mode == "mapreduce":
+                working_dir = await self.generate_overview_via_mapreduce(components, leaf_nodes)
+                self.create_documentation_metadata(working_dir, components, len(leaf_nodes))
+                markdown_count = sum(
+                    1 for name in os.listdir(working_dir) if name.endswith(".md")
+                )
+                logger.info(
+                    "Documentation generation completed (overview_mode=mapreduce): backend=%s "
+                    "provider=%s model=%s output=%s markdown_count=%d",
+                    type(self.backend).__name__,
+                    self.config.provider,
+                    self.config.main_model,
+                    working_dir,
+                    markdown_count,
+                )
+                return
 
             if self.config.overview_only:
                 working_dir = await self.generate_overview_only(components, leaf_nodes)

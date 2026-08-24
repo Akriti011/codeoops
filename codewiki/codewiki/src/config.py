@@ -37,6 +37,16 @@ MAX_TOKEN_PER_LEAF_MODULE = DEFAULT_MAX_TOKEN_PER_LEAF_MODULE
 # via this env var on its own deployment.
 OVERVIEW_ONLY = os.getenv("OVERVIEW_ONLY_MODE", "false").strip().lower() == "true"
 
+# Alternative overview strategy, checked before OVERVIEW_ONLY in
+# documentation_generator.py's run(): "mapreduce" groups the repository into
+# directory-shaped modules, maps each through a small-context LLM call, then
+# reduces the results into one overview.md with a larger-context call (see
+# overview_mapreduce.py). Default "single" is a no-op — OVERVIEW_ONLY (above)
+# still decides between the existing single-call fast path and the legacy
+# clustered path exactly as before. generate_overview_only() itself is
+# unmodified by this; mapreduce is an added alternative, not a replacement.
+OVERVIEW_MODE = os.getenv("OVERVIEW_MODE", "single").strip().lower()
+
 # CLI context detection
 _CLI_CONTEXT = False
 
@@ -91,7 +101,9 @@ class Config:
     use_gitignore: bool = True
     # See OVERVIEW_ONLY above.
     overview_only: bool = OVERVIEW_ONLY
-    
+    # See OVERVIEW_MODE above.
+    overview_mode: str = OVERVIEW_MODE
+
     @property
     def include_patterns(self) -> Optional[List[str]]:
         """Get file include patterns from agent instructions."""
@@ -195,6 +207,7 @@ class Config:
         agent_instructions: Optional[Dict[str, Any]] = None,
         use_gitignore: bool = True,
         overview_only: bool = OVERVIEW_ONLY,
+        overview_mode: str = OVERVIEW_MODE,
     ) -> 'Config':
         """
         Create configuration for CLI context.
@@ -245,4 +258,5 @@ class Config:
             agent_instructions=agent_instructions,
             use_gitignore=use_gitignore,
             overview_only=overview_only,
+            overview_mode=overview_mode,
         )

@@ -56,7 +56,7 @@ def _is_ollama_endpoint(base_url: str) -> bool:
     return "11434" in lowered or "ollama" in lowered
 
 
-def _ollama_extra_body() -> dict:
+def _ollama_extra_body(num_ctx: int | None = None) -> dict:
     """Request a larger Ollama context window (num_ctx) than its runtime default.
 
     Ollama silently truncates the prompt to whatever context window it loads
@@ -68,8 +68,15 @@ def _ollama_extra_body() -> dict:
     documentation instructions themselves — was silently being dropped
     before the model ever saw it. This restores the intended behavior:
     the model actually receiving what CodeWiki sends it.
+
+    ``num_ctx``, when given, overrides the OLLAMA_NUM_CTX env default for
+    this one call — e.g. map-reduce overview generation runs many small map
+    calls at a smaller context (2048, measured to stay on 100% GPU on this
+    hardware) and one larger reduce call at 8192, which a single global env
+    var can't express.
     """
-    num_ctx = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+    if num_ctx is None:
+        num_ctx = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
     return {"options": {"num_ctx": num_ctx}}
 
 
@@ -222,12 +229,54 @@ def create_openai_client(config: Config) -> OpenAI:
     )
 
 
+def _call_llm_via_ollama_native(
+    prompt: str,
+    config: Config,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    num_ctx: int,
+) -> str:
+    """Direct call to Ollama's native /api/chat endpoint.
+
+    Confirmed empirically (Ollama 0.32.1): the OpenAI-compatible
+    /v1/chat/completions endpoint silently ignores num_ctx however it's
+    sent — extra_body, top-level "options", or a top-level "num_ctx" key —
+    and always loads the model at its Modelfile-baked default context
+    regardless. The native endpoint honors options.num_ctx correctly
+    (verified: requesting 2048 loads the model at 2048 and 100% GPU; the
+    OpenAI-compat path with the identical request loads it at the
+    Modelfile's 16384 default and a CPU/GPU split). Used only when a caller
+    explicitly passes num_ctx (currently just overview_mapreduce.py) — every
+    other call path keeps going through the OpenAI-compatible client below,
+    completely unaffected.
+    """
+    import httpx
+
+    base_url = config.llm_base_url.rstrip("/")
+    if base_url.endswith("/v1"):
+        base_url = base_url[: -len("/v1")]
+    url = f"{base_url}/api/chat"
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+        "options": {"num_ctx": num_ctx, "num_predict": max_tokens, "temperature": temperature},
+    }
+    timeout = _llm_request_timeout(config.llm_base_url)
+    with _ollama_call_lock:
+        response = httpx.post(url, json=payload, timeout=timeout)
+        response.raise_for_status()
+    return response.json()["message"]["content"]
+
+
 def call_llm(
     prompt: str,
     config: Config,
     model: str = None,
     temperature: float = 0.0,
     max_tokens: int | None = None,
+    num_ctx: int | None = None,
 ) -> str:
     """
     Call LLM with the given prompt.
@@ -244,6 +293,8 @@ def call_llm(
             Lets a caller request a smaller bounded response — e.g. a single
             repository overview — without changing the global default used by
             other generation paths.
+        num_ctx: Ollama context window for this call (defaults to the
+            OLLAMA_NUM_CTX env var). Ignored for non-Ollama endpoints.
 
     Returns:
         LLM response text
@@ -261,6 +312,18 @@ def call_llm(
     if provider == "azure-openai":
         return _call_llm_via_azure(prompt, config, model, temperature)
 
+    is_ollama = _is_ollama_endpoint(config.llm_base_url)
+
+    # Ollama 0.32.1's OpenAI-compatible endpoint silently ignores num_ctx no
+    # matter how it's sent (confirmed empirically — see
+    # _call_llm_via_ollama_native's docstring), always loading the model at
+    # its Modelfile-baked default instead. Only its native /api/chat endpoint
+    # honors a per-request context override. Route there ONLY when a caller
+    # explicitly asks for a specific num_ctx; every other call keeps going
+    # through the OpenAI-compatible client below, unchanged.
+    if is_ollama and num_ctx is not None:
+        return _call_llm_via_ollama_native(prompt, config, model, temperature, max_tokens, num_ctx)
+
     # Default: OpenAI-compatible
     client = create_openai_client(config)
 
@@ -275,9 +338,8 @@ def call_llm(
         "messages": [{"role": "user", "content": prompt}],
         "temperature": temperature,
     }
-    is_ollama = _is_ollama_endpoint(config.llm_base_url)
     if is_ollama:
-        base_kwargs["extra_body"] = _ollama_extra_body()
+        base_kwargs["extra_body"] = _ollama_extra_body(num_ctx)
 
     with _ollama_call_lock if is_ollama else contextlib.nullcontext():
         try:
