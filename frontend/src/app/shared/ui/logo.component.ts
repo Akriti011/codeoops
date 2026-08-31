@@ -1,132 +1,87 @@
 import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
 /**
- * The CodeOops mark: a hexagonal repository outline with a live core.
- * Pure SVG + CSS — no image assets, no brand assets from anyone else.
+ * Product mark. The glyph is a rounded red tile holding a code caret; the
+ * wordmark sits beside it. `variant` controls which palette the text uses so
+ * the same component works on the white topbar and the near-black sidebar.
  */
 @Component({
   selector: 'co-logo',
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <span class="logo" [class.logo--compact]="compact()">
-      <svg
-        class="mark"
-        viewBox="0 0 64 64"
-        role="img"
-        [attr.aria-label]="showWordmark() ? null : 'CodeOops'"
-        [attr.aria-hidden]="showWordmark() ? 'true' : null"
-      >
-        <defs>
-          <linearGradient [attr.id]="gradientId" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#ff4d4d" />
-            <stop offset="1" stop-color="#c90000" />
-          </linearGradient>
-        </defs>
-        <path
-          class="shell"
-          d="M32 6 55 19v26L32 58 9 45V19z"
-          fill="none"
-          [attr.stroke]="'url(#' + gradientId + ')'"
-          stroke-width="3"
-          stroke-linejoin="round"
-        />
-        <path
-          class="inner"
-          d="M32 17 45 24.5v15L32 47l-13-7.5v-15z"
-          fill="none"
-          stroke="rgba(17,17,17,0.14)"
-          stroke-width="1.5"
-          stroke-linejoin="round"
-        />
-        <circle
-          class="core"
-          cx="32"
-          cy="32"
-          r="5.5"
-          [attr.fill]="'url(#' + gradientId + ')'"
-        />
-      </svg>
-
+    <span class="logo" [attr.data-variant]="variant()" [attr.data-size]="size()">
+      <span class="logo__glyph" aria-hidden="true">
+        <svg viewBox="0 0 32 32" fill="none">
+          <rect width="32" height="32" rx="9" fill="url(#coLogoGrad)" />
+          <path
+            d="M12.6 11.4 9 15.9l3.6 4.5M19.4 11.4 23 15.9l-3.6 4.5"
+            stroke="#fff"
+            stroke-width="2.1"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <defs>
+            <linearGradient id="coLogoGrad" x1="0" y1="0" x2="32" y2="32">
+              <stop stop-color="#FF2A4E" />
+              <stop offset="1" stop-color="#C41230" />
+            </linearGradient>
+          </defs>
+        </svg>
+      </span>
       @if (showWordmark()) {
-        <span class="wordmark">
-          <span class="wordmark__name">Code<em>Oops</em></span>
-          @if (!compact()) {
-            <span class="wordmark__tag">Your code broke. Your docs shouldn't.</span>
+        <span class="logo__text">
+          <span class="logo__name">Code<span class="logo__accent">Oops</span></span>
+          @if (tagline()) {
+            <span class="logo__tagline">{{ tagline() }}</span>
           }
         </span>
       }
     </span>
   `,
   styles: `
-    .logo {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.7rem;
-    }
+    :host { display: inline-flex; }
 
-    .mark {
-      width: 38px;
-      height: 38px;
-      flex: none;
-      filter: drop-shadow(0 2px 8px rgba(230, 0, 0, 0.22));
-    }
+    .logo { display: inline-flex; align-items: center; gap: var(--s-3); min-width: 0; }
 
-    .logo--compact .mark {
-      width: 30px;
-      height: 30px;
-    }
+    .logo__glyph { flex: none; display: block; }
+    .logo[data-size='sm'] .logo__glyph { width: 1.75rem; height: 1.75rem; }
+    .logo[data-size='md'] .logo__glyph { width: 2.125rem; height: 2.125rem; }
+    .logo[data-size='lg'] .logo__glyph { width: 2.75rem; height: 2.75rem; }
 
-    .wordmark {
-      display: flex;
-      flex-direction: column;
-      line-height: 1.1;
-    }
+    .logo__text { display: grid; min-width: 0; }
 
-    .wordmark__name {
+    .logo__name {
       font-weight: 700;
-      font-size: 1.16rem;
-      letter-spacing: -0.035em;
-
-      em {
-        font-style: normal;
-        color: var(--co-red-500);
-      }
+      letter-spacing: -0.025em;
+      line-height: 1.15;
+      white-space: nowrap;
     }
 
-    .logo--compact .wordmark__name {
-      font-size: 1rem;
+    .logo[data-size='sm'] .logo__name { font-size: var(--t-md); }
+    .logo[data-size='md'] .logo__name { font-size: var(--t-lg); }
+    .logo[data-size='lg'] .logo__name { font-size: var(--t-2xl); }
+
+    .logo__tagline {
+      font-size: var(--t-xs);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      font-weight: 600;
+      line-height: 1.3;
     }
 
-    .wordmark__tag {
-      font-size: 0.68rem;
-      color: var(--co-text-secondary);
-      letter-spacing: 0.005em;
-    }
+    .logo[data-variant='light'] .logo__name { color: var(--text); }
+    .logo[data-variant='light'] .logo__accent { color: var(--red-500); }
+    .logo[data-variant='light'] .logo__tagline { color: var(--text-muted); }
 
-    @media (prefers-reduced-motion: no-preference) {
-      .core {
-        transform-origin: 32px 32px;
-        animation: pulse 3.6s var(--co-ease) infinite;
-      }
-    }
-
-    @keyframes pulse {
-      0%,
-      100% {
-        transform: scale(1);
-        opacity: 1;
-      }
-      50% {
-        transform: scale(0.82);
-        opacity: 0.7;
-      }
-    }
+    .logo[data-variant='dark'] .logo__name { color: #fff; }
+    .logo[data-variant='dark'] .logo__accent { color: var(--red-400); }
+    .logo[data-variant='dark'] .logo__tagline { color: var(--sidebar-text); }
   `,
 })
 export class LogoComponent {
+  readonly variant = input<'light' | 'dark'>('light');
+  readonly size = input<'sm' | 'md' | 'lg'>('md');
   readonly showWordmark = input(true);
-  readonly compact = input(false);
-
-  /** Unique per instance so multiple logos don't share one gradient node. */
-  protected readonly gradientId = `co-logo-${Math.random().toString(36).slice(2, 9)}`;
+  readonly tagline = input<string | null>(null);
 }

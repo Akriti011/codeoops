@@ -36,6 +36,9 @@ class JobStore(ABC):
     def latest_for_repository(self, repository_id: uuid.UUID) -> DocumentationJob | None: ...
 
     @abstractmethod
+    def list_all(self) -> list[DocumentationJob]: ...
+
+    @abstractmethod
     def clear(self) -> None: ...
 
 
@@ -68,6 +71,10 @@ class InMemoryJobStore(JobStore):
     def latest_for_repository(self, repository_id: uuid.UUID) -> DocumentationJob | None:
         items = self.list_for_repository(repository_id)
         return items[0] if items else None
+
+    def list_all(self) -> list[DocumentationJob]:
+        with self._lock:
+            return sorted(self._by_id.values(), key=lambda job: job.created_at, reverse=True)
 
     def clear(self) -> None:
         with self._lock:

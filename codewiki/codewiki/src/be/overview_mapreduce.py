@@ -28,6 +28,7 @@ import re
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
+from codewiki.src import config as _config
 from codewiki.src.be import module_descriptor
 from codewiki.src.be.backend import LLMBackend
 from codewiki.src.be.dependency_analyzer.models.core import Node
@@ -42,12 +43,11 @@ MAP_MODEL = os.getenv("MAP_MODEL") or None
 REDUCE_MODEL = os.getenv("REDUCE_MODEL") or None
 MAX_MODULES = int(os.getenv("MAX_MODULES", "40"))
 
-# Not env-configurable on purpose: these are the two measured operating
-# points (100% GPU at 2048, the deliberate "one large call" at 8192) this
-# whole design exists to hit. If you need different numbers, that's a sign
-# the hardware or model changed enough to re-run the context sweep, not a
-# knob to nudge blindly — see README.md's Docker resource notes.
-_MAP_NUM_CTX = 2048
+# Map-step context window now lives in config.py as MAP_NUM_CTX (raised from
+# a hardcoded 2048 to 4096 — see config.py's comment for why). The reduce
+# step's 8192 stays local and hardcoded: it's still the deliberate "one
+# large call" operating point this design exists to hit, and this session
+# only touches the map step per OVERVIEW_QUALITY_SPEC.md sections 3/4.
 _MAP_MAX_TOKENS = 400
 _REDUCE_NUM_CTX = 8192
 _REDUCE_MAX_TOKENS = int(os.getenv("OVERVIEW_MAX_OUTPUT_TOKENS", "1500"))
@@ -106,7 +106,8 @@ def _map_module(
     prompt = MAP_MODULE_PROMPT.format(module_name=module_name, module_descriptor=descriptor_text)
     try:
         response = backend.complete(
-            prompt, temperature=0.0, max_tokens=_MAP_MAX_TOKENS, model=model, num_ctx=_MAP_NUM_CTX
+            prompt, temperature=0.0, max_tokens=_MAP_MAX_TOKENS, model=model,
+            num_ctx=_config.MAP_NUM_CTX,
         )
     except Exception as e:
         logger.error("Map call failed for module %s: %s", module_name, e)

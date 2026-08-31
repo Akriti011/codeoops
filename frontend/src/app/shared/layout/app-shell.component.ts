@@ -1,384 +1,338 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { RouterLink, RouterLinkActive } from '@angular/router';
+import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
-import { DocumentationJobService } from '../../core/services/documentation-job.service';
+import { IconComponent, IconName } from '../ui/icon.component';
 import { LogoComponent } from '../ui/logo.component';
 
 interface NavItem {
-  readonly label: string;
-  readonly path: string;
-  readonly icon: string;
-  readonly exact: boolean;
+  label: string;
+  icon: IconName;
+  link: string;
 }
 
 /**
- * Workspace chrome: a black sidebar on desktop that collapses into a top bar
- * with a slide-in panel on mobile/tablet. Used by every screen except the
- * landing page.
+ * Application chrome: near-black rail on the left, white topbar, content well.
+ *
+ * Only routes that exist appear in the rail. There are no decorative nav items
+ * pointing at screens that were never built.
  */
 @Component({
   selector: 'co-app-shell',
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, RouterLinkActive, LogoComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, IconComponent, LogoComponent],
   template: `
-    <div class="shell">
-      <header class="topbar">
-        <a class="brand" routerLink="/" aria-label="CodeOops home" (click)="closeMenu()">
-          <co-logo [compact]="true" />
-        </a>
-        <button
-          type="button"
-          class="menu-toggle"
-          (click)="toggleMenu()"
-          [attr.aria-expanded]="menuOpen()"
-          aria-controls="primary-nav"
-          aria-label="Toggle navigation menu"
-        >
-          @if (menuOpen()) {
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M5 5l10 10M15 5 5 15" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-            </svg>
-          } @else {
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-            </svg>
-          }
-        </button>
-      </header>
+    <a class="skip-link" href="#co-main">Skip to content</a>
 
-      @if (menuOpen()) {
-        <button
-          type="button"
-          class="backdrop"
-          (click)="closeMenu()"
-          aria-hidden="true"
-          tabindex="-1"
-        ></button>
-      }
+    <div class="shell" [class.shell--collapsed]="collapsed()" [class.shell--open]="drawerOpen()">
+      <!-- ================= sidebar ================= -->
+      <aside class="rail" [attr.data-open]="drawerOpen() ? '' : null">
+        <div class="rail__brand">
+          <a routerLink="/dashboard" class="rail__brand-link" aria-label="CodeOops home">
+            <co-logo variant="dark" size="sm" [showWordmark]="!collapsed()" />
+          </a>
+          <button
+            type="button"
+            class="rail__close"
+            (click)="closeDrawer()"
+            aria-label="Close navigation"
+          >
+            <co-icon name="x" />
+          </button>
+        </div>
 
-      <aside class="rail" [class.rail--open]="menuOpen()" id="primary-nav" aria-label="Primary">
-        <a class="brand brand--desktop" routerLink="/" aria-label="CodeOops home">
-          <co-logo [compact]="true" />
-        </a>
-
-        <nav class="nav">
+        <nav class="rail__nav" aria-label="Main">
+          <p class="rail__section" [class.sr-only]="collapsed()">Platform</p>
           <ul>
-            @for (item of navItems; track item.path) {
+            @for (item of nav; track item.link) {
               <li>
                 <a
-                  class="nav__link"
-                  [routerLink]="item.path"
-                  routerLinkActive="is-active"
-                  [routerLinkActiveOptions]="{ exact: item.exact }"
-                  #rla="routerLinkActive"
-                  [attr.aria-current]="rla.isActive ? 'page' : null"
-                  (click)="closeMenu()"
+                  class="rail__item"
+                  [routerLink]="item.link"
+                  routerLinkActive="rail__item--active"
+                  [attr.title]="collapsed() ? item.label : null"
+                  (click)="closeDrawer()"
                 >
-                  <svg class="nav__icon" viewBox="0 0 20 20" aria-hidden="true">
-                    <path
-                      [attr.d]="item.icon"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1.5"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    />
-                  </svg>
-                  <span>{{ item.label }}</span>
+                  <co-icon class="rail__icon" [name]="item.icon" />
+                  <span class="rail__label">{{ item.label }}</span>
                 </a>
               </li>
             }
           </ul>
         </nav>
 
-        <div class="engine" role="status" [class.engine--live]="engineReachable()">
-          <p class="engine__label">Documentation engine</p>
-          <p class="engine__value">
-            <span class="engine__dot" aria-hidden="true"></span>
-            @switch (engineReachable()) {
-              @case (true) {
-                CodeWiki — connected
-              }
-              @case (false) {
-                CodeWiki — not reachable
-              }
-              @default {
-                CodeWiki — checking…
-              }
-            }
-          </p>
-          <p class="engine__hint">
-            @if (engineReachable() === false) {
-              The configured CodeWiki instance did not respond.
-            } @else {
-              Repository submission and job orchestration only — CodeWiki produces the documentation.
-            }
-          </p>
+        <div class="rail__foot">
+          <div class="rail__engine">
+            <co-icon class="rail__icon" name="cpu" />
+            <span class="rail__label">
+              <span class="rail__engine-title">CodeWiki engine</span>
+              <span class="rail__engine-sub">Local model runtime</span>
+            </span>
+          </div>
+          <button
+            type="button"
+            class="rail__collapse"
+            (click)="toggleCollapsed()"
+            [attr.aria-label]="collapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+          >
+            <co-icon class="rail__icon" [name]="collapsed() ? 'chevron-right' : 'menu'" />
+            <span class="rail__label">Collapse</span>
+          </button>
         </div>
       </aside>
 
-      <main id="main-content" class="main" tabindex="-1">
-        <ng-content />
-      </main>
+      <button
+        type="button"
+        class="scrim"
+        (click)="closeDrawer()"
+        tabindex="-1"
+        aria-hidden="true"
+      ></button>
+
+      <!-- ================= main column ================= -->
+      <div class="col">
+        <header class="topbar">
+          <button
+            type="button"
+            class="topbar__menu"
+            (click)="openDrawer()"
+            aria-label="Open navigation"
+          >
+            <co-icon name="menu" />
+          </button>
+
+          <div class="topbar__spacer"></div>
+
+          <a class="btn btn--primary btn--sm topbar__cta" routerLink="/analyze">
+            <co-icon name="plus" />
+            <span>Analyze repository</span>
+          </a>
+        </header>
+
+        <main id="co-main" class="content" tabindex="-1">
+          <div class="content__inner">
+            <router-outlet />
+          </div>
+        </main>
+      </div>
     </div>
   `,
   styles: `
-    :host {
-      display: block;
-      min-height: 100dvh;
-    }
+    :host { display: block; min-height: 100dvh; }
 
     .shell {
+      --rail-w: var(--sidebar-w);
       display: grid;
-      grid-template-columns: 16rem minmax(0, 1fr);
-      gap: clamp(1rem, 1.6vw, 1.75rem);
-      padding: clamp(1rem, 1.6vw, 1.75rem);
+      grid-template-columns: var(--rail-w) minmax(0, 1fr);
       min-height: 100dvh;
-      align-items: start;
     }
 
-    .topbar {
-      display: none;
-    }
+    .shell--collapsed { --rail-w: var(--sidebar-w-collapsed); }
 
-    .backdrop {
-      display: none;
-    }
+    /* ---------------- sidebar ---------------- */
 
     .rail {
+      grid-column: 1;
       position: sticky;
-      top: clamp(1rem, 1.6vw, 1.75rem);
+      top: 0;
+      align-self: start;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
-      padding: 1.3rem 1rem;
-      border-radius: var(--co-radius-lg);
-      max-height: calc(100dvh - 2 * clamp(1rem, 1.6vw, 1.75rem));
-      background: var(--co-black);
-      border: 1px solid var(--co-border-on-dark);
+      background: var(--sidebar-bg);
+      border-right: 1px solid var(--sidebar-border);
+      padding: var(--s-4) var(--s-3);
+      gap: var(--s-4);
+      z-index: 40;
+      overflow: hidden;
     }
 
-    .brand {
-      padding: 0.2rem 0.35rem;
-      border-radius: var(--co-radius-sm);
-      color: var(--co-text-on-dark);
-    }
-
-    .brand--desktop {
-      display: inline-flex;
-    }
-
-    .nav {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-    }
-
-    .nav ul {
-      display: grid;
-      gap: 0.2rem;
-    }
-
-    .nav__link {
+    .rail__brand {
       display: flex;
       align-items: center;
-      gap: 0.75rem;
-      padding: 0.6rem 0.75rem;
-      border-radius: var(--co-radius-sm);
-      color: var(--co-text-on-dark-muted);
-      font-size: 0.9rem;
-      font-weight: 550;
-      border: 1px solid transparent;
-      transition:
-        color var(--co-fast) var(--co-ease),
-        background var(--co-fast) var(--co-ease),
-        border-color var(--co-fast) var(--co-ease);
-
-      &:hover {
-        color: var(--co-text-on-dark);
-        background: rgba(255, 255, 255, 0.06);
-      }
-
-      &.is-active {
-        color: var(--co-text-on-dark);
-        background: var(--co-red-500);
-        border-color: var(--co-red-500);
-      }
+      justify-content: space-between;
+      gap: var(--s-2);
+      padding: var(--s-2) var(--s-2) var(--s-4);
+      border-bottom: 1px solid var(--sidebar-border);
     }
 
-    .nav__icon {
-      width: 18px;
-      height: 18px;
-      flex: none;
-      opacity: 0.92;
+    .rail__brand-link { display: inline-flex; min-width: 0; }
+
+    .rail__close {
+      display: none;
+      background: none;
+      border: 0;
+      color: var(--sidebar-text);
+      cursor: pointer;
+      width: 2rem; height: 2rem;
+      border-radius: var(--r-sm);
+      align-items: center; justify-content: center;
+      co-icon { width: 1.1rem; height: 1.1rem; }
+      &:hover { background: var(--sidebar-hover); color: #fff; }
     }
 
-    .engine {
-      padding: 0.8rem 0.85rem;
-      border-radius: var(--co-radius-sm);
-      border: 1px solid var(--co-border-on-dark);
-      background: rgba(255, 255, 255, 0.03);
-    }
+    .rail__nav { flex: 1; overflow-y: auto; }
+    .rail__nav ul { display: grid; gap: 2px; }
 
-    .engine__label {
-      font-size: 0.66rem;
-      letter-spacing: 0.13em;
+    .rail__section {
+      font-size: var(--t-xs);
+      letter-spacing: 0.09em;
       text-transform: uppercase;
-      color: var(--co-text-on-dark-faint);
+      font-weight: 700;
+      color: #5C6478;
+      padding: 0 var(--s-3);
+      margin-bottom: var(--s-2);
     }
 
-    .engine__value {
+    .rail__item,
+    .rail__collapse,
+    .rail__engine {
       display: flex;
       align-items: center;
-      gap: 0.45rem;
-      margin-top: 0.35rem;
-      font-size: 0.82rem;
-      font-weight: 600;
-      color: var(--co-text-on-dark-muted);
+      gap: var(--s-3);
+      padding: 0.625rem var(--s-3);
+      border-radius: var(--r-md);
+      color: var(--sidebar-text);
+      font-size: var(--t-base);
+      font-weight: 550;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: 0;
+      cursor: pointer;
+      transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+      white-space: nowrap;
     }
 
-    .engine__dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--co-text-on-dark-faint);
-      flex: none;
+    .rail__icon { width: 1.15rem; height: 1.15rem; flex: none; }
+
+    .rail__item:hover,
+    .rail__collapse:hover { background: var(--sidebar-hover); color: #fff; }
+
+    .rail__item--active {
+      background: var(--sidebar-active);
+      color: var(--sidebar-text-active);
+      box-shadow: inset 2px 0 0 var(--red-500);
     }
 
-    .engine--live .engine__dot {
-      background: var(--co-success);
-      box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.25);
+    .rail__foot {
+      border-top: 1px solid var(--sidebar-border);
+      padding-top: var(--s-3);
+      display: grid;
+      gap: 2px;
     }
 
-    .engine__hint {
-      margin-top: 0.4rem;
-      font-size: 0.72rem;
-      line-height: 1.45;
-      color: var(--co-text-on-dark-faint);
+    .rail__engine { cursor: default; align-items: flex-start; }
+    .rail__engine .rail__icon { margin-top: 0.15rem; color: var(--red-400); }
+    .rail__engine .rail__label { display: grid; line-height: 1.3; }
+    .rail__engine-title { color: #fff; font-size: var(--t-sm); font-weight: 600; }
+    .rail__engine-sub { color: #5C6478; font-size: var(--t-xs); }
+
+    .shell--collapsed .rail__label { display: none; }
+    .shell--collapsed .rail__item,
+    .shell--collapsed .rail__collapse,
+    .shell--collapsed .rail__engine { justify-content: center; padding-inline: 0; }
+    .shell--collapsed .rail__brand { justify-content: center; }
+
+    /* ---------------- main column ---------------- */
+
+    .col { grid-column: 2; display: flex; flex-direction: column; min-width: 0; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      height: var(--topbar-h);
+      display: flex;
+      align-items: center;
+      gap: var(--s-4);
+      padding: 0 var(--s-6);
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
     }
 
-    .main {
-      min-width: 0;
-      outline: none;
+    .topbar__menu {
+      display: none;
+      width: 2.25rem; height: 2.25rem;
+      align-items: center; justify-content: center;
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      background: var(--white);
+      cursor: pointer;
+      co-icon { width: 1.15rem; height: 1.15rem; }
     }
 
-    @media (max-width: 1024px) {
-      .shell {
-        grid-template-columns: minmax(0, 1fr);
-        padding: 0.85rem 0.85rem clamp(1rem, 1.6vw, 1.75rem);
-        gap: 0.85rem;
-      }
+    .topbar__spacer { flex: 1; }
 
-      .topbar {
-        position: sticky;
-        top: 0;
-        z-index: 70;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin: -0.85rem -0.85rem 0;
-        padding: 0.75rem 0.9rem;
-        background: var(--co-black);
-      }
+    .content { flex: 1; padding: var(--s-8) var(--s-6) var(--s-12); outline: none; }
+    .content__inner { max-width: var(--content-max); margin: 0 auto; }
 
-      .brand--desktop {
-        display: none;
-      }
+    .scrim { display: none; }
 
-      .menu-toggle {
-        display: grid;
-        place-items: center;
-        width: 38px;
-        height: 38px;
-        border-radius: var(--co-radius-sm);
-        border: 1px solid var(--co-border-on-dark);
-        background: transparent;
-        color: var(--co-text-on-dark);
-        cursor: pointer;
+    /* ---------------- responsive ---------------- */
 
-        svg {
-          width: 18px;
-          height: 18px;
-        }
-      }
-
-      .backdrop {
-        display: block;
-        position: fixed;
-        inset: 0;
-        z-index: 65;
-        border: 0;
-        padding: 0;
-        background: rgba(5, 5, 5, 0.4);
-        cursor: default;
-      }
+    @media (max-width: 900px) {
+      .shell { grid-template-columns: minmax(0, 1fr); }
 
       .rail {
         position: fixed;
-        top: 0;
-        left: 0;
-        bottom: 0;
-        z-index: 68;
-        width: min(19rem, 84vw);
-        max-height: none;
-        border-radius: 0;
-        transform: translateX(-100%);
-        transition: transform var(--co-base) var(--co-ease-out);
-        padding-top: 4.5rem;
+        inset: 0 auto 0 0;
+        width: var(--sidebar-w);
+        translate: -100% 0;
+        transition: translate var(--base) var(--ease);
       }
 
-      .rail--open {
-        transform: translateX(0);
+      .rail[data-open] { translate: 0 0; box-shadow: var(--shadow-xl); }
+
+      .rail__close { display: inline-flex; }
+      .rail__collapse { display: none; }
+
+      .col { grid-column: 1; }
+      .topbar__menu { display: inline-flex; }
+
+      .shell--open .scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 35;
+        background: rgba(11, 13, 18, 0.45);
+        border: 0;
+        cursor: pointer;
       }
+
+      .shell--collapsed .rail__label { display: inline; }
+      .shell--collapsed .rail__item { justify-content: flex-start; padding-inline: var(--s-3); }
+      .shell--collapsed .rail__brand { justify-content: space-between; }
+
+      .content { padding: var(--s-6) var(--s-4) var(--s-10); }
+    }
+
+    @media (max-width: 520px) {
+      .topbar__cta span { display: none; }
     }
   `,
 })
 export class AppShellComponent {
-  private readonly jobService = inject(DocumentationJobService);
-
-  protected readonly menuOpen = signal(false);
-  /** `null` until the one-shot probe on load resolves. */
-  protected readonly engineReachable = signal<boolean | null>(null);
-
-  protected readonly navItems: readonly NavItem[] = [
-    {
-      label: 'New Repository',
-      path: '/',
-      exact: true,
-      icon: 'M10 4v12M4 10h12',
-    },
-    {
-      label: 'Repositories',
-      path: '/repositories',
-      exact: false,
-      icon: 'M3 6.5 10 3l7 3.5-7 3.5zM3 10l7 3.5L17 10M3 13.5 10 17l7-3.5',
-    },
-    {
-      label: 'Documentation',
-      path: '/documentation',
-      exact: false,
-      icon: 'M5 3h7l3 3v11H5zM12 3v3h3M7.5 10h5M7.5 13h3.5',
-    },
-    {
-      label: 'Settings',
-      path: '/settings',
-      exact: false,
-      icon: 'M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM10 2.5v2M10 15.5v2M17.5 10h-2M4.5 10h-2M15.3 4.7l-1.4 1.4M6.1 13.9l-1.4 1.4M15.3 15.3l-1.4-1.4M6.1 6.1 4.7 4.7',
-    },
+  protected readonly nav: readonly NavItem[] = [
+    { label: 'Dashboard', icon: 'dashboard', link: '/dashboard' },
+    { label: 'Analyze repository', icon: 'repositories', link: '/analyze' },
+    { label: 'Jobs', icon: 'jobs', link: '/jobs' },
+    { label: 'Documentation', icon: 'documentation', link: '/documentation' },
   ];
 
-  constructor() {
-    this.jobService.probeEngine().subscribe({
-      next: (status) => this.engineReachable.set(status.reachable),
-      error: () => this.engineReachable.set(false),
-    });
+  protected readonly collapsed = signal(false);
+  protected readonly drawerOpen = signal(false);
+
+  protected toggleCollapsed(): void {
+    this.collapsed.update((v) => !v);
   }
 
-  protected toggleMenu(): void {
-    this.menuOpen.update((open) => !open);
+  protected openDrawer(): void {
+    this.drawerOpen.set(true);
   }
 
-  protected closeMenu(): void {
-    this.menuOpen.set(false);
+  protected closeDrawer(): void {
+    this.drawerOpen.set(false);
   }
 }

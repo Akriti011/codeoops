@@ -89,6 +89,9 @@ class DocumentationJobService:
     def list_for_repository(self, repository_id: uuid.UUID) -> list[DocumentationJob]:
         return self._jobs.list_for_repository(repository_id)
 
+    def list_all(self) -> list[DocumentationJob]:
+        return self._jobs.list_all()
+
     def latest_for_repository(self, repository_id: uuid.UUID) -> DocumentationJob | None:
         return self._jobs.latest_for_repository(repository_id)
 

@@ -47,6 +47,33 @@ OVERVIEW_ONLY = os.getenv("OVERVIEW_ONLY_MODE", "false").strip().lower() == "tru
 # unmodified by this; mapreduce is an added alternative, not a replacement.
 OVERVIEW_MODE = os.getenv("OVERVIEW_MODE", "single").strip().lower()
 
+# --------------------------------------------------------------------------
+# Overview-quality pipeline (OVERVIEW_QUALITY_SPEC.md), stage 1/2 knobs.
+# Sections 5/6 (section-by-section generation, the grounding validator) are
+# not implemented yet — their config (SECTION_NUM_CTX, VALIDATOR_ENABLED,
+# ...) is deliberately not added until that work starts.
+# --------------------------------------------------------------------------
+
+# Map-step Ollama context window (overview_mapreduce.py's per-module call).
+# Was a hardcoded, deliberately-not-env-configurable 2048 in
+# overview_mapreduce.py ("re-run the context sweep, not a knob to nudge
+# blindly") — raised to 4096 and moved here on explicit instruction that
+# 4096 has since been benchmarked and is viable on this hardware. If that
+# turns out not to hold in practice, this is the one line to revert.
+MAP_NUM_CTX = int(os.getenv("MAP_NUM_CTX", "4096"))
+
+# Token budget for one module's evidence digest fed to the map call (see
+# module_descriptor.py's build_module_descriptor). Replaces the old
+# MODULE_DESCRIPTOR_BUDGET env var (default 1000, defined locally in
+# module_descriptor.py) — same role, new name and a larger default per
+# OVERVIEW_QUALITY_SPEC.md section 4.3. An old .env with
+# MODULE_DESCRIPTOR_BUDGET set no longer has any effect; use this name.
+MODULE_EVIDENCE_BUDGET = int(os.getenv("MODULE_EVIDENCE_BUDGET", "2500"))
+
+# Cap on public symbols (classes/functions/methods) listed in a module's
+# evidence digest, before the token budget above even applies.
+MAX_SYMBOLS_PER_MODULE = int(os.getenv("MAX_SYMBOLS_PER_MODULE", "60"))
+
 # CLI context detection
 _CLI_CONTEXT = False
 

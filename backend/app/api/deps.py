@@ -18,6 +18,7 @@ from app.providers.documentation_provider import (
     DocumentationProvider,
     get_documentation_provider,
 )
+from app.repositories.job_repository import JobStore, get_job_store
 from app.repositories.repository_repository import (
     InMemoryRepositoryStore,
     RepositoryStore,
@@ -26,6 +27,7 @@ from app.services.documentation.job_service import DocumentationJobService, get_
 from app.services.documentation_service import DocumentationService
 from app.services.repository_service import RepositoryService
 from app.services.repository_url_policy import RepositoryUrlPolicy
+from app.services.stats_service import StatsService
 from app.services.uploads.upload_service import ZipUploadService
 from app.services.uploads.zip_ingestion import ZipIngestionLimits
 
@@ -81,6 +83,17 @@ def get_zip_upload_service(
     )
 
 
+def get_job_store_dep() -> JobStore:
+    return get_job_store()
+
+
+def get_stats_service(
+    repositories: Annotated[RepositoryStore, Depends(get_repository_store)],
+    jobs: Annotated[JobStore, Depends(get_job_store_dep)],
+) -> StatsService:
+    return StatsService(repositories=repositories, jobs=jobs)
+
+
 RepositoryServiceDep = Annotated[RepositoryService, Depends(get_repository_service)]
 DocumentationServiceDep = Annotated[
     DocumentationService, Depends(get_documentation_service)
@@ -89,3 +102,4 @@ DocumentationJobServiceDep = Annotated[
     DocumentationJobService, Depends(get_documentation_job_service)
 ]
 ZipUploadServiceDep = Annotated[ZipUploadService, Depends(get_zip_upload_service)]
+StatsServiceDep = Annotated[StatsService, Depends(get_stats_service)]

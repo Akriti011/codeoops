@@ -87,16 +87,23 @@ async def get_engine_status(jobs: DocumentationJobServiceDep) -> EngineStatusRes
 @router.get(
     "/jobs",
     response_model=JobListResponse,
-    summary="List documentation jobs for a repository",
+    summary="List documentation jobs, optionally filtered to one repository",
     responses={404: {"model": ErrorResponse, "description": "Unknown repository"}},
 )
 async def list_jobs(
-    repository_id: uuid.UUID,
     repositories: RepositoryServiceDep,
     jobs: DocumentationJobServiceDep,
+    repository_id: uuid.UUID | None = None,
 ) -> JobListResponse:
-    repositories.get(repository_id)  # 404s if unknown
-    items = jobs.list_for_repository(repository_id)
+    """List jobs. Omit ``repository_id`` to list every job the backend knows
+    about, newest first — used by the dashboard and job list screens, which
+    have no single repository to scope to.
+    """
+    if repository_id is not None:
+        repositories.get(repository_id)  # 404s if unknown
+        items = jobs.list_for_repository(repository_id)
+    else:
+        items = jobs.list_all()
     return JobListResponse(
         items=[JobResponse.model_validate(item) for item in items], total=len(items)
     )

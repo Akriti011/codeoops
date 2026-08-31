@@ -1,176 +1,377 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  ElementRef,
-  Injector,
-  afterNextRender,
-  computed,
-  effect,
-  inject,
-  input,
-  output,
-  signal,
-} from '@angular/core';
-import { DatePipe } from '@angular/common';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
-import { DocumentationState } from '../../core/models/documentation.model';
-import { Repository } from '../../core/models/repository.model';
+import { CodeOopsApiService, repositoryLabel } from '../../shared/data/codeoops-api.service';
+import { formatDateTime, httpErrorMessage, isDocumentUnavailable } from '../../shared/data/format';
+import { DOCUMENT_SLOTS, DocumentationJob } from '../../shared/data/models';
+import { renderMarkdown } from '../../shared/markdown/markdown';
+import { PageHeaderComponent } from '../../shared/layout/page-header.component';
+import { CardComponent } from '../../shared/ui/card.component';
+import { EmptyStateComponent } from '../../shared/ui/empty-state.component';
+import { IconComponent } from '../../shared/ui/icon.component';
+import { SkeletonComponent } from '../../shared/ui/skeleton.component';
 import {
-  DocumentationTocItem,
-  MarkdownService,
-} from '../../core/services/markdown.service';
-import { DocumentationPrismComponent } from '../../shared/ui/documentation-prism.component';
+  StatusPillComponent,
+  humanStatus,
+  toneForStatus,
+} from '../../shared/ui/status-pill.component';
 
-/**
- * The documentation reader.
- *
- * When no artifact exists it renders an explicit empty state — never
- * substitute prose, sample Markdown or a "preview". When an artifact exists,
- * its `entry_document` is the only source of content: rendered Markdown,
- * syntax-highlighted code and Mermaid diagrams, all derived from that single
- * string. The table of contents is extracted from the document's own
- * headings and reported to the parent via `tocChange` — never a fixed list.
- */
+/** The one document this pipeline actually produces. */
+const PRIMARY_DOCUMENT = 'overview.md';
+
 @Component({
   selector: 'co-documentation-viewer',
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [DatePipe, DocumentationPrismComponent],
+  imports: [
+    RouterLink,
+    PageHeaderComponent,
+    CardComponent,
+    EmptyStateComponent,
+    StatusPillComponent,
+    IconComponent,
+    SkeletonComponent,
+  ],
   template: `
-    <article class="viewer" aria-live="polite">
-      <header class="viewer__head">
-        <div class="viewer__titles">
-          <p class="co-eyebrow">Documentation</p>
-          <h2 class="co-h1 viewer__title">{{ repository().name }}</h2>
+    <div class="page stack-lg">
+      <co-page-header
+        [title]="heading()"
+        [subtitle]="job()?.repository_url ?? null"
+        [crumbs]="[
+          { label: 'Dashboard', link: '/dashboard' },
+          { label: 'Documentation', link: '/documentation' },
+          { label: 'Overview' }
+        ]"
+      >
+        <div page-actions class="row">
+          @if (job(); as j) {
+            <co-status-pill [label]="statusText()" [tone]="statusTone()" />
+            <a class="btn btn--ghost btn--sm" [routerLink]="['/jobs', j.id]">
+              <co-icon name="jobs" />
+              <span>Job details</span>
+            </a>
+          }
+          @if (markdown()) {
+            <button type="button" class="btn btn--ghost btn--sm" (click)="copy()">
+              <co-icon [name]="copied() ? 'check' : 'file'" />
+              <span>{{ copied() ? 'Copied' : 'Copy Markdown' }}</span>
+            </button>
+            <button type="button" class="btn btn--primary btn--sm" (click)="download()">
+              <co-icon name="download" />
+              <span>Download</span>
+            </button>
+          }
         </div>
+      </co-page-header>
 
-        <dl class="viewer__meta">
-          <div>
-            <dt>Repository</dt>
-            <dd class="co-mono">{{ repository().owner }}/{{ repository().name }}</dd>
-          </div>
-          <div>
-            <dt>Branch</dt>
-            <dd>{{ repository().default_branch }}</dd>
-          </div>
-          <div>
-            <dt>Engine</dt>
-            <dd>{{ providerName() }}</dd>
-          </div>
-          <div>
-            <dt>Generated</dt>
-            <dd>
-              {{
-                state().artifact
-                  ? (state().artifact!.generated_at | date: 'medium')
-                  : 'Not generated yet'
-              }}
-            </dd>
-          </div>
-        </dl>
-      </header>
+      <div class="layout">
+        <!-- ---------------- documents rail ---------------- -->
+        <aside class="rail">
+          <co-card title="Documents" flush>
+            <ul class="files">
+              @for (slot of slots; track slot.name) {
+                <li>
+                  <button
+                    type="button"
+                    class="files__item"
+                    [class.files__item--active]="slot.name === PRIMARY"
+                    [disabled]="slot.name !== PRIMARY"
+                    [attr.aria-current]="slot.name === PRIMARY ? 'true' : null"
+                  >
+                    <co-icon class="files__icon" name="file" />
+                    <span class="files__body">
+                      <span class="files__name">{{ slot.title }}</span>
+                      <span class="files__desc">
+                        {{ slot.name === PRIMARY ? slot.name : 'Not generated in this build' }}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              }
+            </ul>
+          </co-card>
 
-      @if (state().artifact === null) {
-        <!-- Empty state. No document content is rendered here, by design. -->
-        <section class="empty" aria-labelledby="empty-title">
-          <co-documentation-prism />
-          <h3 id="empty-title" class="empty__title">
-            No CodeWiki documentation available.
-          </h3>
-          <p class="empty__body">
-            Documentation has not been generated yet for
-            <span class="co-mono">{{ repository().owner }}/{{ repository().name }}</span
-            >.
-          </p>
-          @if (state().detail) {
-            <p class="empty__detail">{{ state().detail }}</p>
+          @if (headings().length) {
+            <co-card title="On this page">
+              <nav class="toc" aria-label="Table of contents">
+                @for (heading of headings(); track heading.id) {
+                  <a
+                    class="toc__link"
+                    [class.toc__link--sub]="heading.level > 2"
+                    [href]="'#' + heading.id"
+                  >
+                    {{ heading.text }}
+                  </a>
+                }
+              </nav>
+            </co-card>
           }
-          <p class="empty__rule">
-            CodeOops does not write documentation itself. Nothing appears in this
-            reader until CodeWiki has produced an artifact for this repository.
-          </p>
-        </section>
 
-        <section class="diagram" aria-labelledby="diagram-title">
-          <div class="diagram__head">
-            <h3 id="diagram-title" class="co-h3">Architecture visualization</h3>
-            <span class="diagram__flag">Mermaid-ready</span>
-          </div>
-          <div class="diagram__canvas">
-            <p class="diagram__note">
-              Diagrams are rendered from the engine's own Mermaid output. There is
-              nothing to render yet.
-            </p>
-          </div>
-        </section>
-      } @else {
-        <section class="document">
-          @if (renderedHtml(); as html) {
-            <div class="doc-prose" #docProse [innerHTML]="html"></div>
+          @if (job()?.codewiki; as run) {
+            <co-card title="Generation info">
+              <dl class="meta">
+                <div class="meta__row">
+                  <dt>Model</dt>
+                  <dd>{{ run.model || '—' }}</dd>
+                </div>
+                <div class="meta__row">
+                  <dt>Engine job</dt>
+                  <dd class="t-mono">{{ run.job_id || '—' }}</dd>
+                </div>
+                <div class="meta__row">
+                  <dt>Finished</dt>
+                  <dd>{{ finished() }}</dd>
+                </div>
+              </dl>
+            </co-card>
+          }
+        </aside>
+
+        <!-- ---------------- document ---------------- -->
+        <co-card>
+          @if (loading()) {
+            <div class="stack">
+              <co-skeleton width="55%" height="1.75rem" />
+              <co-skeleton width="100%" height="0.9rem" />
+              <co-skeleton width="92%" height="0.9rem" />
+              <co-skeleton width="80%" height="0.9rem" />
+              <co-skeleton width="100%" height="12rem" radius="var(--r-md)" />
+            </div>
+          } @else if (error(); as message) {
+            <co-empty-state
+              title="Could not load the overview"
+              [message]="message"
+              icon="alert"
+              tone="amber"
+            >
+              <button type="button" class="btn btn--ghost btn--sm" (click)="reload()">
+                <co-icon name="refresh" />
+                <span>Try again</span>
+              </button>
+            </co-empty-state>
+          } @else if (notGenerated()) {
+            <co-empty-state
+              title="No overview for this job"
+              [message]="notGeneratedMessage()"
+              icon="documentation"
+              tone="grey"
+            >
+              <a class="btn btn--ghost btn--sm" [routerLink]="['/jobs', jobId()]">
+                <co-icon name="jobs" />
+                <span>Open job progress</span>
+              </a>
+            </co-empty-state>
           } @else {
-            <p class="co-help">Rendering documentation…</p>
+            <article class="md" [innerHTML]="html()"></article>
           }
-        </section>
-      }
-    </article>
+        </co-card>
+      </div>
+    </div>
   `,
-  styleUrl: './documentation-viewer.component.scss',
+  styles: `
+    :host { display: block; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 17rem minmax(0, 1fr);
+      gap: var(--s-6);
+      align-items: start;
+    }
+
+    @media (max-width: 1080px) {
+      .layout { grid-template-columns: minmax(0, 1fr); }
+    }
+
+    .rail { display: grid; gap: var(--s-4); position: sticky; top: calc(var(--topbar-h) + var(--s-4)); }
+
+    @media (max-width: 1080px) {
+      .rail { position: static; }
+    }
+
+    .files { display: grid; }
+
+    .files__item {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--s-3);
+      width: 100%;
+      padding: var(--s-3) var(--s-5);
+      background: none;
+      border: 0;
+      border-top: 1px solid var(--border);
+      text-align: left;
+      cursor: pointer;
+      color: inherit;
+    }
+
+    .files li:first-child .files__item { border-top: 0; }
+    .files__item:disabled { cursor: not-allowed; color: var(--text-muted); }
+    .files__item:not(:disabled):hover { background: var(--grey-50); }
+
+    .files__item--active {
+      background: var(--red-50);
+      box-shadow: inset 2px 0 0 var(--red-500);
+    }
+
+    .files__item--active:not(:disabled):hover { background: var(--red-50); }
+
+    .files__icon { width: 1.05rem; height: 1.05rem; flex: none; margin-top: 0.15rem; color: var(--grey-400); }
+    .files__item--active .files__icon { color: var(--red-500); }
+
+    .files__body { display: grid; gap: 0.05rem; min-width: 0; }
+    .files__name { font-size: var(--t-sm); font-weight: 650; }
+    .files__item--active .files__name { color: var(--red-600); }
+    .files__desc { font-size: var(--t-xs); color: var(--text-muted); }
+
+    .toc { display: grid; gap: var(--s-2); }
+    .toc__link {
+      font-size: var(--t-sm);
+      color: var(--text-secondary);
+      border-left: 2px solid var(--border);
+      padding-left: var(--s-3);
+      line-height: 1.4;
+    }
+    .toc__link:hover { color: var(--red-500); border-left-color: var(--red-500); }
+    .toc__link--sub { padding-left: var(--s-5); font-size: var(--t-xs); }
+
+    .meta { display: grid; gap: var(--s-3); }
+    .meta__row { display: flex; justify-content: space-between; gap: var(--s-3); font-size: var(--t-sm); }
+    .meta__row dt { color: var(--text-secondary); flex: none; }
+    .meta__row dd { margin: 0; text-align: right; font-weight: 600; word-break: break-all; }
+  `,
 })
 export class DocumentationViewerComponent {
-  readonly repository = input.required<Repository>();
-  readonly state = input.required<DocumentationState>();
-
-  /** Reports the live table of contents extracted from the rendered document. */
-  readonly tocChange = output<readonly DocumentationTocItem[]>();
-
-  private readonly markdown = inject(MarkdownService);
+  private readonly api = inject(CodeOopsApiService);
+  private readonly route = inject(ActivatedRoute);
   private readonly sanitizer = inject(DomSanitizer);
-  private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly injector = inject(Injector);
+  private readonly destroyRef = inject(DestroyRef);
 
-  private renderToken = 0;
+  protected readonly PRIMARY = PRIMARY_DOCUMENT;
+  protected readonly slots = DOCUMENT_SLOTS;
 
-  protected readonly providerName = computed(
-    () => this.state().artifact?.provider ?? 'CodeWiki (not connected)',
+  protected readonly jobId = signal<string | null>(null);
+  protected readonly job = signal<DocumentationJob | null>(null);
+  protected readonly markdown = signal<string | null>(null);
+  protected readonly loading = signal(true);
+  protected readonly error = signal<string | null>(null);
+  protected readonly notGenerated = signal(false);
+  protected readonly copied = signal(false);
+
+  private readonly rendered = computed(() => renderMarkdown(this.markdown()));
+
+  protected readonly headings = computed(() =>
+    this.rendered().headings.filter((h) => h.level >= 2 && h.level <= 3),
   );
 
-  private readonly rendered = signal<SafeHtml | null>(null);
-  protected readonly renderedHtml = this.rendered.asReadonly();
+  protected readonly html = computed<SafeHtml>(() =>
+    // renderMarkdown() escapes every character of the source before adding its
+    // own markup, so the result contains no repository-supplied HTML.
+    this.sanitizer.bypassSecurityTrustHtml(this.rendered().html),
+  );
+
+  protected readonly heading = computed(() => {
+    const job = this.job();
+    return job ? repositoryLabel(job) : 'Overview';
+  });
+
+  protected readonly statusText = computed(() => humanStatus(this.job()?.status));
+  protected readonly statusTone = computed(() => toneForStatus(this.job()?.status));
+  protected readonly finished = computed(() =>
+    formatDateTime(this.job()?.codewiki?.finished_at ?? this.job()?.completed_at),
+  );
+
+  protected readonly notGeneratedMessage = computed(() => {
+    const status = (this.job()?.status ?? '').toUpperCase();
+    if (status === 'FAILED') {
+      return 'This job failed before an overview was produced. Open the job to see the failure reported by the backend.';
+    }
+    if (status && status !== 'COMPLETED') {
+      return 'This job has not finished yet. The overview appears here once generation completes.';
+    }
+    return 'The backend has no overview.md stored for this job.';
+  });
 
   constructor() {
-    effect(() => {
-      const artifact = this.state().artifact;
-
-      if (!artifact) {
-        this.rendered.set(null);
-        this.tocChange.emit([]);
-        return;
-      }
-
-      const token = ++this.renderToken;
-      this.markdown.render(artifact.entry_document).then((result) => {
-        if (token !== this.renderToken) {
-          return;
-        }
-        this.rendered.set(this.sanitizer.bypassSecurityTrustHtml(result.html));
-        this.tocChange.emit(result.toc);
-        if (result.hasDiagrams) {
-          afterNextRender(() => this.renderDiagrams(), { injector: this.injector });
-        }
-      });
+    this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
+      this.jobId.set(params.get('id'));
+      this.reload();
     });
   }
 
-  private renderDiagrams(): void {
-    const nodes = this.elementRef.nativeElement.querySelectorAll<HTMLElement>(
-      '.doc-prose pre.mermaid',
-    );
-    if (nodes.length === 0) {
+  protected reload(): void {
+    const id = this.jobId();
+    this.markdown.set(null);
+    this.notGenerated.set(false);
+    this.error.set(null);
+
+    if (!id) {
+      this.loading.set(false);
+      this.error.set('No job id was supplied in the URL.');
       return;
     }
-    import('mermaid').then(({ default: mermaid }) => {
-      mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'strict' });
-      void mermaid.run({ nodes: Array.from(nodes) });
-    });
+
+    this.loading.set(true);
+
+    this.api
+      .getJob(id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (job) => this.job.set(job),
+        error: () => this.job.set(null),
+      });
+
+    this.api
+      .getDocument(id, PRIMARY_DOCUMENT)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (doc) => {
+          const content = (doc.content ?? '').trim();
+          if (!content) {
+            this.notGenerated.set(true);
+          } else {
+            this.markdown.set(doc.content ?? '');
+          }
+          this.loading.set(false);
+        },
+        error: (err: unknown) => {
+          this.loading.set(false);
+          // 404 = unknown job, 409 = job known but no verified overview yet —
+          // both mean the same thing to a viewer: nothing to render.
+          if (isDocumentUnavailable(err)) {
+            this.notGenerated.set(true);
+            return;
+          }
+          this.error.set(
+            httpErrorMessage(err, 'The request for the overview did not complete.'),
+          );
+        },
+      });
+  }
+
+  protected async copy(): Promise<void> {
+    const text = this.markdown();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      this.copied.set(true);
+      setTimeout(() => this.copied.set(false), 2000);
+    } catch {
+      this.copied.set(false);
+    }
+  }
+
+  protected download(): void {
+    const text = this.markdown();
+    if (!text) return;
+
+    const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = PRIMARY_DOCUMENT;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 }

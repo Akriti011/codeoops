@@ -1,85 +1,86 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 
-import {
-  StateTone,
-  WORKFLOW_STATE_LABELS,
-  WORKFLOW_STATE_TONES,
-  WorkflowState,
-} from '../../core/models/workflow-state';
+export type StatusTone = 'success' | 'progress' | 'danger' | 'idle' | 'info';
 
-/** Compact status indicator with a live dot. */
+/**
+ * Small status indicator. Takes a tone plus whatever label the backend gave
+ * us — it never maps or invents its own vocabulary.
+ */
 @Component({
   selector: 'co-status-pill',
+  standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <span class="pill" [attr.data-tone]="tone()">
       <span class="dot" aria-hidden="true"></span>
-      <span class="label">{{ label() }}</span>
+      <span>{{ label() }}</span>
     </span>
   `,
   styles: `
+    :host { display: inline-flex; }
+
     .pill {
       display: inline-flex;
       align-items: center;
       gap: 0.4rem;
-      padding: 0.24rem 0.6rem 0.24rem 0.5rem;
-      border-radius: var(--co-radius-full);
-      border: 1px solid var(--tone-border, var(--co-neutral-border));
-      background: var(--tone-bg, var(--co-neutral-bg));
-      color: var(--tone-fg, var(--co-neutral));
-      font-size: 0.72rem;
-      font-weight: 650;
-      letter-spacing: 0.03em;
+      padding: 0.2rem 0.6rem 0.2rem 0.45rem;
+      border-radius: var(--r-pill);
+      background: var(--tone-bg);
+      color: var(--tone-fg);
+      border: 1px solid var(--tone-border);
+      font-size: var(--t-xs);
+      font-weight: 600;
       white-space: nowrap;
     }
 
     .dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: currentColor;
-      flex: none;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: currentColor; flex: none;
     }
 
-    .pill[data-tone='neutral'] {
-      --tone-fg: var(--co-neutral);
-      --tone-bg: var(--co-neutral-bg);
-      --tone-border: var(--co-neutral-border);
-    }
-    .pill[data-tone='progress'] {
-      --tone-fg: var(--co-progress);
-      --tone-bg: var(--co-progress-bg);
-      --tone-border: var(--co-progress-border);
-    }
-    .pill[data-tone='success'] {
-      --tone-fg: var(--co-success);
-      --tone-bg: var(--co-success-bg);
-      --tone-border: var(--co-success-border);
-    }
-    .pill[data-tone='danger'] {
-      --tone-fg: var(--co-danger);
-      --tone-bg: var(--co-danger-bg);
-      --tone-border: var(--co-danger-border);
-    }
+    .pill[data-tone='success']  { --tone-bg: var(--ok-50);   --tone-fg: var(--ok-600);   --tone-border: #ABEFC6; }
+    .pill[data-tone='progress'] { --tone-bg: var(--info-50); --tone-fg: var(--info-600); --tone-border: #B2DDFF; }
+    .pill[data-tone='info']     { --tone-bg: var(--warn-50); --tone-fg: var(--warn-600); --tone-border: #FEDF89; }
+    .pill[data-tone='danger']   { --tone-bg: var(--err-50);  --tone-fg: var(--err-600);  --tone-border: #FECDCA; }
+    .pill[data-tone='idle']     { --tone-bg: var(--idle-50); --tone-fg: var(--grey-500); --tone-border: var(--border); }
 
     @media (prefers-reduced-motion: no-preference) {
-      .pill[data-tone='progress'] .dot {
-        animation: blink 1.4s ease-in-out infinite;
-      }
+      .pill[data-tone='progress'] .dot { animation: blink 1.4s ease-in-out infinite; }
     }
-
-    @keyframes blink {
-      50% {
-        opacity: 0.3;
-      }
-    }
+    @keyframes blink { 50% { opacity: 0.3; } }
   `,
 })
 export class StatusPillComponent {
-  readonly state = input.required<WorkflowState>();
+  /** Text to display — pass the backend's own status string. */
+  readonly label = input.required<string>();
+  readonly tone = input<StatusTone>('idle');
+}
 
-  protected readonly label = computed(() => WORKFLOW_STATE_LABELS[this.state()]);
-  protected readonly tone = computed<StateTone>(
-    () => WORKFLOW_STATE_TONES[this.state()],
-  );
+/** Shared mapping so every screen colours the same status identically. */
+export function toneForStatus(status: string | null | undefined): StatusTone {
+  switch ((status ?? '').toUpperCase()) {
+    case 'COMPLETED':
+      return 'success';
+    case 'GENERATING':
+    case 'SUBMITTING':
+    case 'RETRIEVING':
+    case 'IN_PROGRESS':
+      return 'progress';
+    case 'QUEUED':
+    case 'PENDING':
+      return 'info';
+    case 'FAILED':
+      return 'danger';
+    default:
+      return 'idle';
+  }
+}
+
+/** Title-cases a backend status for display without inventing new wording. */
+export function humanStatus(status: string | null | undefined): string {
+  if (!status) return 'Unknown';
+  return status
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
