@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import os
 import re
+from pathlib import Path
 
 from codewiki.src.be import module_descriptor
 from codewiki.src.be.dependency_analyzer.models.core import Node
-from codewiki.src.repo_facts import _analyze_repo_path
+from codewiki.src.be.repo_facts import _analyze_repo_path
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "repo_facts_fixture")
 
@@ -63,7 +64,10 @@ def test_digest_includes_public_symbols_and_excludes_private():
     )
 
     assert "class Greeter" in descriptor
-    assert "def Greeter.greet(self, name)" in descriptor
+    # Verbatim signature slicing (OVERVIEW_QUALITY_SPEC.md Part 2): the real
+    # type hint and return annotation, not just the bare parameter name
+    # Node.parameters alone would give.
+    assert "def Greeter.greet(self, name: str) -> str" in descriptor
     assert "def main()" in descriptor
     assert "_internal_helper" not in descriptor
 
@@ -151,3 +155,140 @@ def test_imports_from_and_imported_by_present_with_weights():
     )
 
     assert "IMPORTED BY: external (1)" in descriptor
+
+
+# ---------------------------------------------------------------------
+# Part 2 — verbatim signature slicing
+# ---------------------------------------------------------------------
+
+
+def test_slice_signature_captures_types_defaults_and_decorator(tmp_path):
+    source = (
+        "class Ignore:\n"
+        "    pass\n"
+        "\n"
+        '@app.get("/jobs/{id}")\n'
+        "def submit(self, repo_url: str, branch: str | None = None) -> RunHandle:\n"
+        "    return RunHandle()\n"
+    )
+    path = tmp_path / "mod.py"
+    path.write_text(source)
+
+    result = module_descriptor.slice_signature(path, start_line=5, language="python")
+
+    assert result == (
+        '@app.get("/jobs/{id}") def submit(self, repo_url: str, '
+        "branch: str | None = None) -> RunHandle"
+    )
+
+
+def test_slice_signature_class_with_bases():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "settings.py"
+        path.write_text("class Settings(BaseSettings):\n    debug: bool = False\n")
+        result = module_descriptor.slice_signature(path, start_line=1, language="python")
+        assert result == "class Settings(BaseSettings)"
+
+
+def test_slice_signature_falls_back_beyond_line_cap():
+    """A signature spanning more than 3 lines never finds its terminator
+    inside the window — must return None (degrade), not raise or guess."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "mod.py"
+        path.write_text(
+            "def build_module_descriptor(\n"
+            "    module_name: str,\n"
+            "    module_files: list,\n"
+            "    components: dict,\n"
+            "    repo_path: str,\n"
+            ") -> str:\n"
+            "    pass\n"
+        )
+        result = module_descriptor.slice_signature(path, start_line=1, language="python")
+        assert result is None
+
+
+def test_slice_signature_missing_file_returns_none():
+    assert module_descriptor.slice_signature(Path("/no/such/file.py"), 1, "python") is None
+
+
+def test_language_falls_back_to_file_extension_when_node_language_is_none():
+    """Node.language came back None for every node in a hand-checked real
+    fixture (see module_descriptor.py's _effective_language) — simulate
+    that gap explicitly here (_make_function_node sets it, matching how a
+    real analyzer constructs a Node) and confirm the fallback still infers
+    Python from the file extension rather than silently disabling
+    slicing."""
+    node = _make_function_node("foo", "pkg/mod.py").model_copy(update={"language": None})
+    assert node.language is None
+    assert module_descriptor._effective_language(node) == "python"
+
+
+# ---------------------------------------------------------------------
+# Part 1.2 — CONSTANTS
+# ---------------------------------------------------------------------
+
+
+def test_constants_present_and_secrets_redacted(tmp_path):
+    rel_path = "pkg/settings.py"
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / rel_path).write_text(
+        'ARTIFACT_NAMES = ("overview.md",)\n'
+        'API_SECRET_KEY = "sk-super-secret-value"\n'
+        "small_case_not_a_constant = 1\n"
+    )
+    node = _make_function_node("foo", rel_path)
+    components = {node.id: node}
+
+    descriptor = module_descriptor.build_module_descriptor(
+        module_name="pkg",
+        module_files=[rel_path],
+        components=components,
+        in_degree={},
+        file_to_module={rel_path: "pkg"},
+        repo_path=str(tmp_path),
+    )
+
+    assert 'ARTIFACT_NAMES = ("overview.md",)' in descriptor
+    assert "API_SECRET_KEY = <redacted>" in descriptor
+    assert "sk-super-secret-value" not in descriptor
+    assert "small_case_not_a_constant" not in descriptor
+
+
+# ---------------------------------------------------------------------
+# Part 1.4 — ENTRY POINTS now sourced from repo_facts's real detector
+# ---------------------------------------------------------------------
+
+
+def test_entry_points_use_real_detector_not_filename_allowlist(tmp_path):
+    """A file that is NOT in the old filename allowlist (main.py,
+    __main__.py, manage.py, app.py, ...) but does contain a real detected
+    pattern must still show up — proving this reads from
+    repo_facts._scan_code_entry_points, not the old evidence_extractor
+    filename set."""
+    rel_path = "pkg/handlers.py"
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / rel_path).write_text(
+        '@app.get("/health")\n'
+        "def health():\n"
+        "    return 'ok'\n"
+    )
+    node = _make_function_node("health", rel_path)
+    components = {node.id: node}
+
+    descriptor = module_descriptor.build_module_descriptor(
+        module_name="pkg",
+        module_files=[rel_path],
+        components=components,
+        in_degree={},
+        file_to_module={rel_path: "pkg"},
+        repo_path=str(tmp_path),
+    )
+
+    assert "ENTRY POINTS" in descriptor
+    assert "http_route" in descriptor
+    assert "/health" in descriptor

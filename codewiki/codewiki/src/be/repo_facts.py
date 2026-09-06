@@ -13,7 +13,13 @@ ground truth; they do not re-derive it.
 
 Debug entry point (writes a JSON dump of RepoFacts for a real repository)::
 
-    python -m codewiki.src.repo_facts --repo <path> --out facts.json
+    python -m codewiki.src.be.repo_facts --repo <path> --out facts.json
+
+Lives beside module_descriptor.py in src/be/ (moved here from src/ — the
+original top-level location was an offhand example in an early draft, not
+a real requirement; src/be/ is where every sibling stage of this pipeline
+lives, and overview_sections.py / overview_validator.py are landing here
+too).
 """
 
 from __future__ import annotations
@@ -26,7 +32,7 @@ import re
 import tomllib
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Literal, Optional, Tuple
 
 import yaml
 
@@ -46,16 +52,36 @@ class Dependency:
     manifest: str  # which file it came from
 
 
+EntryPointKind = Literal[
+    "main", "console_script", "http_route", "docker_cmd",
+    "npm_script", "spark_submit", "celery_task", "shell_script",
+]
+# celery_task and shell_script are pragmatic extensions beyond the six the
+# spec names — a Celery @task or a top-level shell script doesn't honestly
+# fit any of the other six. Tightened to a real closed set (Literal for
+# static checking, __post_init__ for a runtime guarantee): sections 7 and 9
+# will branch on kind, and a typo in a plain str would silently never fire
+# rather than error.
+_ENTRY_POINT_KINDS = frozenset(
+    {"main", "console_script", "http_route", "docker_cmd",
+     "npm_script", "spark_submit", "celery_task", "shell_script"}
+)
+
+
 @dataclass(frozen=True)
 class EntryPoint:
-    kind: str  # "main" | "console_script" | "http_route" | "docker_cmd"
-    #           | "npm_script" | "spark_submit" (plus two pragmatic
-    #           extensions this implementation adds — see module docstring
-    #           note below on "kind is a plain str, not a closed enum").
+    kind: EntryPointKind
     name: str
     file: str
     line: int
     detail: Optional[str]  # route path, command string, ...
+
+    def __post_init__(self) -> None:
+        if self.kind not in _ENTRY_POINT_KINDS:
+            raise ValueError(
+                f"Unknown EntryPoint kind {self.kind!r}; must be one of "
+                f"{sorted(_ENTRY_POINT_KINDS)}"
+            )
 
 
 @dataclass(frozen=True)

@@ -22,11 +22,11 @@ for that. Nothing here changes CodeOops's behavior; this is packaging only.
 
 CodeOops itself needs no GPU. Ollama benefits from one (Metal on Apple
 Silicon, CUDA on Linux/Windows with an NVIDIA GPU) — this is exactly why
-Ollama stays outside Docker in this architecture (see §5).
+Ollama stays outside Docker in this architecture (see §4).
 
 ---
 
-## 2. What to send your manager
+## 2. Getting the source onto the destination machine
 
 Copy (or `git clone`/zip) the entire `codeoops/` project directory. It is
 fully self-contained — no dependency on any path, username, or container
@@ -69,7 +69,7 @@ codeoops/
 `__pycache__/`, test fixtures, `.env` (only `.env.example` — generate your
 own `.env` on the destination machine), any of this machine's uploaded
 repositories or generated overviews (those live in Docker volumes, which are
-intentionally excluded from the package — see §6).
+intentionally excluded from the package — see §5).
 
 ---
 
@@ -232,7 +232,7 @@ nothing invented.
 |---|---|---|
 | `DOCUMENTATION_PROVIDER` | `codewiki` | Which engine the backend wires up. Only `codewiki` is implemented. |
 | `CODEWIKI_BASE_URL` | `http://codewiki:8000` | Backend → CodeWiki, over the Docker network. Don't change unless you rename the `codewiki` service. |
-| `ALLOWED_ORIGINS` | `http://localhost:4200` | CORS allow-list. Add your manager's actual origin if accessing the API from a browser on a different host/port. |
+| `ALLOWED_ORIGINS` | `http://localhost:4200` | CORS allow-list. Add the actual origin here if the frontend is accessed from a different host/port than the default. |
 | `ALLOWED_REPOSITORY_HOSTS` | `github.com` | Git hosts CodeOops will accept a repository URL from. |
 | `MAIN_MODEL` / `FALLBACK_MODEL_1` / `CLUSTER_MODEL` | `codewiki-qwen2.5-16k:latest` | The Ollama model CodeWiki calls. Same model for all three roles in this deployment (no separate clustering model — clustering is bypassed entirely in single-overview mode anyway). |
 | `LLM_BASE_URL` | `http://host.docker.internal:11434/v1` | Where CodeWiki reaches Ollama. See §4. |

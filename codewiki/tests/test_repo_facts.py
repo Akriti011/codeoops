@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from codewiki.src.repo_facts import Dependency, extract_repo_facts, _analyze_repo_path
+from codewiki.src.be.repo_facts import Dependency, EntryPoint, extract_repo_facts, _analyze_repo_path
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "repo_facts_fixture")
 
@@ -101,10 +101,19 @@ def test_single_module_has_no_edges_or_cycles(facts):
     assert facts.cycles == []
 
 
+def test_entry_point_kind_is_validated():
+    """kind is a closed set now (Part 1 decision #5) — a typo must raise,
+    not silently produce an EntryPoint that no branch in a future section
+    generator will ever match."""
+    EntryPoint(kind="main", name="x", file="f.py", line=1, detail=None)  # valid, no raise
+    with pytest.raises(ValueError):
+        EntryPoint(kind="mian", name="x", file="f.py", line=1, detail=None)  # typo
+
+
 def test_no_llm_import_anywhere():
     """repo_facts.py must not import anything LLM-related — grep-level
     guarantee that this stage really is deterministic."""
-    import codewiki.src.repo_facts as module
+    import codewiki.src.be.repo_facts as module
 
     source = open(module.__file__, encoding="utf-8").read()
     for forbidden in ("backend.py", "LLMBackend", "ollama", "openai", ".complete("):

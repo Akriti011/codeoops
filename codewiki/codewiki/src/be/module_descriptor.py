@@ -29,12 +29,14 @@ every analyzer in dependency_analyzer/analyzers/, not this file.
 from __future__ import annotations
 
 import os
+import re
+from pathlib import Path
 from typing import Dict, List, Optional, Set
 
 from codewiki.src import config as _config
 from codewiki.src.be import doc_harvester
 from codewiki.src.be.dependency_analyzer.models.core import Node
-from codewiki.src.be.evidence_extractor import _ENTRYPOINT_NAMES
+from codewiki.src.be.repo_facts import EntryPoint, _scan_code_entry_points
 from codewiki.src.be.utils import count_tokens
 
 # Re-exported under their historical names in this file so existing callers
@@ -63,7 +65,95 @@ def _is_public(node: Node) -> bool:
     return not bare.startswith("_")
 
 
-def _signature_for(node: Node) -> str:
+_SLICE_MAX_LINES = 3
+_SLICE_MAX_CHARS = 200
+
+
+def slice_signature(file_path: Path, start_line: int, language: Optional[str]) -> Optional[str]:
+    """Return a symbol's declaration exactly as written in the source file —
+    full fidelity (type hints, defaults, return annotations, base classes)
+    that Node.parameters alone cannot carry, since Node.parameters is bare
+    argument names only (see dependency_analyzer/analyzers/python.py).
+
+    Reads from `start_line` (Node always exposes one — see
+    dependency_analyzer/models/core.py's `start_line: int = 0` — this
+    checks it rather than assuming), tracks `([{`/`)]}` depth, and stops at
+    the first `:` at depth 0 for Python or the first `{`/`;` at depth 0 for
+    every other language. Never raises and never guesses: capped at 3
+    lines / 200 characters, and if no terminator is found inside that
+    window the caller falls back to the weaker reconstructed
+    `def name(params)` form — degraded fidelity for that one symbol, not a
+    failure.
+    """
+    if not start_line or start_line < 1:
+        return None
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except OSError:
+        return None
+    if start_line > len(lines):
+        return None
+
+    is_python = (language or "").lower() == "python"
+    window_text = "".join(lines[start_line - 1 : start_line - 1 + _SLICE_MAX_LINES])
+    window_text = window_text[: _SLICE_MAX_CHARS + 1]
+
+    depth = 0
+    terminator_pos: Optional[int] = None
+    for i, ch in enumerate(window_text):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth = max(0, depth - 1)
+        elif depth == 0 and ((is_python and ch == ":") or (not is_python and ch in "{;")):
+            terminator_pos = i
+            break
+
+    if terminator_pos is None or terminator_pos >= _SLICE_MAX_CHARS:
+        return None
+
+    raw = window_text[:terminator_pos]  # excludes the terminator itself
+    collapsed = " ".join(raw.split())
+    if not collapsed:
+        return None
+
+    if is_python and start_line >= 2:
+        prev_line = lines[start_line - 2].strip()
+        if prev_line.startswith("@"):
+            collapsed = f"{prev_line} {collapsed}"
+
+    return collapsed
+
+
+_QUALIFIED_NAME_RE_CACHE: Dict[str, "re.Pattern[str]"] = {}
+
+
+def _restore_qualified_name(sliced: str, node: Node) -> str:
+    """A verbatim slice reads the bare name as written in source
+    ("def greet(...)"), but this digest lists symbols in one flat ranking,
+    not grouped under their class — a reader needs Node.name's dotted
+    qualification ("Greeter.greet") to know which class a method belongs
+    to. Substitutes only the declared name, leaving every type hint,
+    default and decorator the slice captured untouched. No-ops (returns
+    the slice unmodified) if the bare name can't be found, rather than
+    risking a wrong substitution."""
+    if "." not in node.name:
+        return sliced
+    bare = node.name.split(".")[-1]
+    keyword = "class" if node.component_type == "class" else "def"
+    pattern = _QUALIFIED_NAME_RE_CACHE.setdefault(
+        f"{keyword}:{bare}", re.compile(rf"\b{keyword}\s+{re.escape(bare)}\b")
+    )
+    new_sliced, count = pattern.subn(f"{keyword} {node.name}", sliced, count=1)
+    return new_sliced if count else sliced
+
+
+def _reconstructed_signature(node: Node) -> str:
+    """Name-level fallback when slice_signature can't cleanly extract a
+    declaration (file unreadable, or no terminator within the 3-line/200
+    char cap) — no type hints, no defaults, no return type, but never a
+    missing symbol."""
     if node.component_type == "class":
         short = node.name.split(".")[-1]
         if node.base_classes:
@@ -71,6 +161,34 @@ def _signature_for(node: Node) -> str:
         return f"class {short}:"
     params = ", ".join(node.parameters or [])
     return f"def {node.name}({params})"
+
+
+_PY_EXTENSIONS = (".py", ".pyi")
+
+
+def _effective_language(node: Node) -> Optional[str]:
+    """Node.language turned out unreliable in this pipeline: a hand-checked
+    fixture came back None for every node — function, method and class
+    alike — regardless of file. Whatever aggregation step assembles the
+    final `components` dict (past the per-file analyzers, which do set it —
+    see dependency_analyzer/analyzers/python.py's `language="python"`)
+    drops the field before it reaches callers like this one. Pre-existing,
+    not introduced by this file; file extension is a more reliable signal
+    for the one thing slice_signature needs (Python vs everything else)
+    regardless of whether or when that gap gets fixed upstream."""
+    if node.language:
+        return node.language
+    if node.relative_path.endswith(_PY_EXTENSIONS):
+        return "python"
+    return None
+
+
+def _signature_for(node: Node, repo_path: str) -> str:
+    abs_path = os.path.join(repo_path, node.relative_path)
+    sliced = slice_signature(Path(abs_path), node.start_line, _effective_language(node))
+    if sliced:
+        return _restore_qualified_name(sliced, node)
+    return _reconstructed_signature(node)
 
 
 def _docstring_first_line(node: Node) -> str:
@@ -230,8 +348,57 @@ def _format_edges(weights: Dict[str, int], heading: str) -> str:
     return f"{label}: {pairs}" if pairs else f"{label}: (none)"
 
 
-def _entrypoints(module_files: List[str]) -> List[str]:
-    return [f for f in module_files if os.path.basename(f).lower() in _ENTRYPOINT_NAMES]
+_MAX_ENTRY_POINTS = 10
+_MAX_CONSTANTS_PER_MODULE = 15
+_CONSTANT_RE = re.compile(r"^([A-Z][A-Z0-9_]{2,})\s*=\s*(.{0,80})")
+_SECRET_NAME_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
+
+
+def _format_entry_points(entry_points: List[EntryPoint]) -> str:
+    """Sourced from repo_facts._scan_code_entry_points — the same
+    regex/AST detector repo_facts.extract_repo_facts() itself uses, not
+    the old evidence_extractor filename allowlist (main.py/app.py/...)
+    this section used to read, which only ever named a file, never a real
+    pattern match."""
+    shown = entry_points[:_MAX_ENTRY_POINTS]
+    lines = []
+    for ep in shown:
+        line = f"- {ep.kind}: {ep.name} ({ep.file}:{ep.line})"
+        if ep.detail and ep.detail != ep.name:
+            line += f" — {ep.detail}"
+        lines.append(line)
+    heading = "ENTRY POINTS"
+    if len(entry_points) > len(shown):
+        heading += f" (top {len(shown)} of {len(entry_points)})"
+    return heading + "\n" + "\n".join(lines)
+
+
+def _extract_constants(repo_path: str, module_files: List[str]) -> List[str]:
+    """Module-level `NAME = value` constants at zero indentation — cheap
+    regex, no AST, Python-shaped (works incidentally for JS/Java/Scala
+    lines that happen to start with the identifier, but this is
+    deliberately not a per-language parser — see OVERVIEW_QUALITY_SPEC.md
+    Part 1 decision #2). A name containing KEY/TOKEN/SECRET/PASSWORD is
+    reported with its value redacted — the name alone ("ATLASCLOUD_API_KEY
+    = <redacted>") is still real, useful evidence."""
+    found: List[str] = []
+    for rel_path in module_files:
+        abs_path = os.path.join(repo_path, rel_path)
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read(200_000)
+        except OSError:
+            continue
+        for line in content.splitlines():
+            match = _CONSTANT_RE.match(line)
+            if not match:
+                continue
+            name, value = match.group(1), match.group(2).rstrip()
+            if any(marker in name.upper() for marker in _SECRET_NAME_MARKERS):
+                found.append(f"{name} = <redacted>")
+            else:
+                found.append(f"{name} = {value}")
+    return found
 
 
 def _module_docstring(repo_path: str, module_files: List[str]) -> str:
@@ -267,10 +434,12 @@ def build_module_descriptor(
     tight budget: header -> public surface (signatures + first docstring
     line, added symbol by symbol, not as one all-or-nothing block, since
     MAX_SYMBOLS_PER_MODULE can list more symbols than MODULE_EVIDENCE_BUDGET
-    tokens allow) -> module docstring -> IMPORTS FROM -> IMPORTED BY ->
-    (only if budget remains) the single most cross-module-referenced
-    function's full body. Every truncated list reports "top N of M" rather
-    than silently dropping the rest.
+    tokens allow) -> constants -> module docstring -> IMPORTS FROM ->
+    IMPORTED BY -> entry points -> (only if budget remains) the single
+    most cross-module-referenced function's full body. Every truncated
+    list reports "top N of M" rather than silently dropping the rest;
+    constants is the one section still dropped as a whole block under a
+    tight budget, per spec.
 
     `in_degree` (global, includes same-module references) is accepted for
     backward-compatible signature parity with the map-reduce caller and is
@@ -309,7 +478,7 @@ def build_module_descriptor(
         shown_count = 0
         surface_lines: List[str] = []
         for node in capped_symbols:
-            sig = _signature_for(node)
+            sig = _signature_for(node, repo_path)
             doc = _docstring_first_line(node)
             line = f'    {sig}\n        """{doc}"""' if doc else f"    {sig}"
             block_tokens = count_tokens(line) + 1  # +1 for the joining newline
@@ -327,6 +496,16 @@ def build_module_descriptor(
             )
             parts.append(heading + "\n" + "\n".join(surface_lines))
 
+    constants = _extract_constants(repo_path, module_files)
+    if constants:
+        shown_constants = constants[:_MAX_CONSTANTS_PER_MODULE]
+        heading = (
+            f"\nCONSTANTS (top {len(shown_constants)} of {len(constants)})"
+            if len(constants) > len(shown_constants)
+            else "\nCONSTANTS"
+        )
+        try_add(heading + "\n" + "\n".join(shown_constants))
+
     module_doc = _module_docstring(repo_path, module_files)
     if module_doc:
         try_add(f"\nMODULE DOCSTRING\n{module_doc}")
@@ -339,9 +518,9 @@ def build_module_descriptor(
     if incoming:
         try_add("\n" + _format_edges(incoming, "IMPORTED BY"))
 
-    entry_lines = _entrypoints(module_files)
-    if entry_lines:
-        try_add("\nENTRY POINTS\n" + "\n".join(f"- {line}" for line in entry_lines))
+    module_entry_points = _scan_code_entry_points(repo_path, module_files)
+    if module_entry_points:
+        try_add("\n" + _format_entry_points(module_entry_points))
 
     top_function = _most_referenced_function(module_files, components, cross_module_refs)
     if top_function is not None:
