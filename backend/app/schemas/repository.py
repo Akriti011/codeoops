@@ -44,3 +44,17 @@ class RepositoryResponse(BaseModel):
 class RepositoryListResponse(BaseModel):
     items: list[RepositoryResponse]
     total: int = Field(ge=0)
+
+
+class BinnedRepositoryResponse(BaseModel):
+    """A repository in the bin, plus what is recoverable with it."""
+
+    repository: RepositoryResponse
+    binned_at: datetime
+    job_count: int = Field(ge=0)
+    has_overview: bool
+
+
+class BinnedRepositoryListResponse(BaseModel):
+    items: list[BinnedRepositoryResponse]
+    total: int = Field(ge=0)

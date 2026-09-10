@@ -18,7 +18,7 @@ import mermaid from 'mermaid';
 
 import { CodeOopsApiService, repositoryLabel } from '../../shared/data/codeoops-api.service';
 import { formatDateTime, httpErrorMessage, isDocumentUnavailable } from '../../shared/data/format';
-import { DOCUMENT_SLOTS, DocumentationJob } from '../../shared/data/models';
+import { DocumentationJob } from '../../shared/data/models';
 import { renderMarkdown } from '../../shared/markdown/markdown';
 import { PageHeaderComponent } from '../../shared/layout/page-header.component';
 import { CardComponent } from '../../shared/ui/card.component';
@@ -95,32 +95,7 @@ const PRIMARY_DOCUMENT = 'overview.md';
       </co-page-header>
 
       <div class="layout">
-        <!-- ---------------- documents rail ---------------- -->
         <aside class="rail">
-          <co-card title="Documents" flush>
-            <ul class="files">
-              @for (slot of slots; track slot.name) {
-                <li>
-                  <button
-                    type="button"
-                    class="files__item"
-                    [class.files__item--active]="slot.name === PRIMARY"
-                    [disabled]="slot.name !== PRIMARY"
-                    [attr.aria-current]="slot.name === PRIMARY ? 'true' : null"
-                  >
-                    <co-icon class="files__icon" name="file" />
-                    <span class="files__body">
-                      <span class="files__name">{{ slot.title }}</span>
-                      <span class="files__desc">
-                        {{ slot.name === PRIMARY ? slot.name : 'Not generated in this build' }}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              }
-            </ul>
-          </co-card>
-
           @if (headings().length) {
             <co-card title="On this page">
               <nav class="toc" aria-label="Table of contents">
@@ -218,41 +193,6 @@ const PRIMARY_DOCUMENT = 'overview.md';
       .rail { position: static; }
     }
 
-    .files { display: grid; }
-
-    .files__item {
-      display: flex;
-      align-items: flex-start;
-      gap: var(--s-3);
-      width: 100%;
-      padding: var(--s-3) var(--s-5);
-      background: none;
-      border: 0;
-      border-top: 1px solid var(--border);
-      text-align: left;
-      cursor: pointer;
-      color: inherit;
-    }
-
-    .files li:first-child .files__item { border-top: 0; }
-    .files__item:disabled { cursor: not-allowed; color: var(--text-muted); }
-    .files__item:not(:disabled):hover { background: var(--grey-50); }
-
-    .files__item--active {
-      background: var(--red-50);
-      box-shadow: inset 2px 0 0 var(--red-500);
-    }
-
-    .files__item--active:not(:disabled):hover { background: var(--red-50); }
-
-    .files__icon { width: 1.05rem; height: 1.05rem; flex: none; margin-top: 0.15rem; color: var(--grey-400); }
-    .files__item--active .files__icon { color: var(--red-500); }
-
-    .files__body { display: grid; gap: 0.05rem; min-width: 0; }
-    .files__name { font-size: var(--t-sm); font-weight: 650; }
-    .files__item--active .files__name { color: var(--red-600); }
-    .files__desc { font-size: var(--t-xs); color: var(--text-muted); }
-
     .toc { display: grid; gap: var(--s-2); }
     .toc__link {
       font-size: var(--t-sm);
@@ -276,9 +216,6 @@ export class DocumentationViewerComponent {
   private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);
-
-  protected readonly PRIMARY = PRIMARY_DOCUMENT;
-  protected readonly slots = DOCUMENT_SLOTS;
 
   protected readonly jobId = signal<string | null>(null);
   private readonly injector = inject(Injector);
@@ -469,17 +406,16 @@ export class DocumentationViewerComponent {
   }
 
   /**
-   * Delete the repository this overview belongs to — its record, every
-   * documentation run for it, the stored overview, and (for an uploaded ZIP)
-   * the extracted archive on the backend. No undo, so it is gated behind a
-   * confirm; on success we leave for the Documentation list.
+   * Move the repository this overview belongs to — with every run for it and
+   * the generated overview — to the bin. Recoverable from the Bin section;
+   * on success we leave for the Documentation list.
    */
   protected deleteRepo(): void {
     const repoId = this.job()?.repository_id;
     if (!repoId || this.deleting()) return;
 
     const label = this.heading();
-    if (!confirm(`Delete "${label}" and its generated documentation?\n\nThis cannot be undone.`)) {
+    if (!confirm(`Move "${label}" to the bin? You can restore it from the Bin section.`)) {
       return;
     }
 
@@ -494,7 +430,7 @@ export class DocumentationViewerComponent {
         },
         error: (err: unknown) => {
           this.deleting.set(false);
-          this.error.set(httpErrorMessage(err, `Could not delete "${label}".`));
+          this.error.set(httpErrorMessage(err, `Could not move "${label}" to the bin.`));
         },
       });
   }

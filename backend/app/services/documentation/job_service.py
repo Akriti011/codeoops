@@ -98,14 +98,33 @@ class DocumentationJobService:
     def latest_for_repository(self, repository_id: uuid.UUID) -> DocumentationJob | None:
         return self._jobs.latest_for_repository(repository_id)
 
+    def binned_for_repository(self, repository_id: uuid.UUID) -> list[DocumentationJob]:
+        return self._jobs.binned_for_repository(repository_id)
+
+    def bin_repository_data(self, repository: Repository) -> int:
+        """Move a repository's documentation jobs to the bin alongside the
+        repository. Nothing on disk or in CodeWiki is touched — a restore is a
+        true undo. Returns the number of jobs binned.
+        """
+        moved = self._jobs.bin_for_repository(repository.id)
+        logger.info("Binned %d job(s) for repository %s", len(moved), repository.id)
+        return len(moved)
+
+    def restore_repository_data(self, repository: Repository) -> int:
+        """Bring a repository's binned jobs back to the live set."""
+        moved = self._jobs.restore_for_repository(repository.id)
+        logger.info("Restored %d job(s) for repository %s", len(moved), repository.id)
+        return len(moved)
+
     async def purge_repository_data(self, repository: Repository) -> int:
         """Delete every documentation trace of ``repository``: its job records,
         their verified artifacts, CodeWiki's own output directories on the
         shared volume, and CodeWiki's own registry entries. Returns the number
         of job records removed. Safe to call for a repository that never
-        generated anything.
+        generated anything, and whether it is live or in the bin.
         """
         jobs = self._jobs.list_for_repository(repository.id)
+        jobs += self._jobs.binned_for_repository(repository.id)
         codewiki_job_ids = {job.codewiki_job_id for job in jobs}
 
         for job in jobs:

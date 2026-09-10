@@ -22,6 +22,8 @@ from app.schemas.common import ErrorResponse
 from app.schemas.documentation import DocumentationStatusResponse
 from app.schemas.job import JobListResponse, JobResponse
 from app.schemas.repository import (
+    BinnedRepositoryListResponse,
+    BinnedRepositoryResponse,
     RepositoryCreateRequest,
     RepositoryListResponse,
     RepositoryResponse,
@@ -108,6 +110,31 @@ async def list_repositories(service: RepositoryServiceDep) -> RepositoryListResp
 
 
 @router.get(
+    "/bin",
+    response_model=BinnedRepositoryListResponse,
+    summary="List repositories in the bin",
+)
+async def list_bin(
+    repositories: RepositoryServiceDep,
+    jobs: DocumentationJobServiceDep,
+) -> BinnedRepositoryListResponse:
+    """Repositories that were deleted but can still be restored (until the
+    backend restarts — the bin is in memory like everything else here)."""
+    items: list[BinnedRepositoryResponse] = []
+    for repository, binned_at in repositories.list_binned():
+        binned_jobs = jobs.binned_for_repository(repository.id)
+        items.append(
+            BinnedRepositoryResponse(
+                repository=RepositoryResponse.model_validate(repository),
+                binned_at=binned_at,
+                job_count=len(binned_jobs),
+                has_overview=any(j.overview_available for j in binned_jobs),
+            )
+        )
+    return BinnedRepositoryListResponse(items=items, total=len(items))
+
+
+@router.get(
     "/{repository_id}",
     response_model=RepositoryResponse,
     summary="Get one repository",
@@ -161,7 +188,7 @@ async def get_repository_jobs(
 @router.delete(
     "/{repository_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete a repository and everything generated for it",
+    summary="Move a repository to the bin",
     responses={404: {"model": ErrorResponse, "description": "Unknown repository"}},
 )
 async def delete_repository(
@@ -169,14 +196,54 @@ async def delete_repository(
     repositories: RepositoryServiceDep,
     jobs: DocumentationJobServiceDep,
 ) -> Response:
-    """Remove a repository record together with all of its documentation
-    jobs, their verified artifacts, and CodeWiki's own output directories
-    (and, for an uploaded ZIP, the extracted archive on disk).
+    """Send a repository and its documentation jobs to the bin.
 
-    Idempotent from the caller's point of view only in that a second call
-    returns ``404`` — the first call is what does the work.
+    Nothing is destroyed: the generated overview, the extracted archive and
+    CodeWiki's own state are all left in place, so ``POST
+    /{repository_id}/restore`` is a true undo. Use ``DELETE
+    /{repository_id}/bin`` to erase it for good.
     """
     repository = repositories.get(repository_id)  # 404s if unknown
+    jobs.bin_repository_data(repository)
+    repositories.bin(repository_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{repository_id}/restore",
+    response_model=RepositoryResponse,
+    summary="Restore a repository from the bin",
+    responses={404: {"model": ErrorResponse, "description": "Not in the bin"}},
+)
+async def restore_repository(
+    repository_id: uuid.UUID,
+    repositories: RepositoryServiceDep,
+    jobs: DocumentationJobServiceDep,
+) -> RepositoryResponse:
+    """Bring a binned repository — and every documentation job that went to
+    the bin with it — back to the live set."""
+    repository = repositories.get_binned(repository_id)  # 404s if not binned
+    jobs.restore_repository_data(repository)
+    restored = repositories.restore(repository_id)
+    return RepositoryResponse.model_validate(restored)
+
+
+@router.delete(
+    "/{repository_id}/bin",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Permanently delete a repository from the bin",
+    responses={404: {"model": ErrorResponse, "description": "Not in the bin"}},
+)
+async def purge_repository(
+    repository_id: uuid.UUID,
+    repositories: RepositoryServiceDep,
+    jobs: DocumentationJobServiceDep,
+) -> Response:
+    """Erase a binned repository for good: its record, its jobs, their
+    verified artifacts, CodeWiki's output directories and registry entries,
+    and (for an uploaded ZIP) the extracted archive on disk. No undo.
+    """
+    repository = repositories.get_binned(repository_id)  # 404s if not binned
     await jobs.purge_repository_data(repository)
     repositories.delete(repository_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

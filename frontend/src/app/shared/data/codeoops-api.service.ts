@@ -42,6 +42,11 @@ const ENDPOINTS = {
     `${API_BASE}/documentation/jobs/${encodeURIComponent(id)}/overview`,
   repositories: `${API_BASE}/repositories`,
   repository: (id: string) => `${API_BASE}/repositories/${encodeURIComponent(id)}`,
+  bin: `${API_BASE}/repositories/bin`,
+  repositoryRestore: (id: string) =>
+    `${API_BASE}/repositories/${encodeURIComponent(id)}/restore`,
+  repositoryPurge: (id: string) =>
+    `${API_BASE}/repositories/${encodeURIComponent(id)}/bin`,
   stats: `${API_BASE}/stats`,
 } as const;
 
@@ -88,6 +93,28 @@ interface RawRepositoryList {
 interface RawStats {
   repository_count: number;
   job_counts: { completed: number; in_progress: number; failed: number };
+}
+
+/** Shape of `app.schemas.repository.BinnedRepositoryResponse`. */
+interface RawBinnedRepository {
+  repository: RawRepository & {
+    source: string;
+    upload_original_filename: string | null;
+  };
+  binned_at: string;
+  job_count: number;
+  has_overview: boolean;
+}
+
+/** One row in the Bin view. */
+export interface BinItem {
+  repository_id: string;
+  label: string;
+  repository_url: string;
+  source: string;
+  binned_at: string;
+  job_count: number;
+  has_overview: boolean;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -151,14 +178,50 @@ export class CodeOopsApiService {
   }
 
   /**
-   * Delete a repository and everything generated for it — every documentation
-   * job, its stored overview, and (for an uploaded ZIP) the extracted archive
-   * on the backend's disk. Resolves on 204; errors if the repository is
-   * already gone (404) or the backend refuses.
+   * Move a repository (and its documentation jobs) to the bin. Nothing is
+   * destroyed — the overview, the extracted archive and CodeWiki's state
+   * stay put, so `restoreRepository` is a true undo. Resolves on 204.
    */
   deleteRepository(repositoryId: string): Observable<void> {
     return this.http
       .delete(ENDPOINTS.repository(repositoryId), { observe: 'response' })
+      .pipe(map(() => undefined));
+  }
+
+  /** Everything currently in the bin, newest first. */
+  listBin(): Observable<BinItem[]> {
+    return this.http.get<{ items: RawBinnedRepository[] }>(ENDPOINTS.bin).pipe(
+      map((res) =>
+        (res.items ?? []).map((row) => ({
+          repository_id: row.repository.id,
+          label:
+            row.repository.source === 'UPLOAD'
+              ? row.repository.upload_original_filename || row.repository.name
+              : `${row.repository.owner}/${row.repository.name}`,
+          repository_url: row.repository.repository_url,
+          source: row.repository.source,
+          binned_at: row.binned_at,
+          job_count: row.job_count,
+          has_overview: row.has_overview,
+        })),
+      ),
+    );
+  }
+
+  /** Bring a binned repository — and its binned jobs — back to the live set. */
+  restoreRepository(repositoryId: string): Observable<void> {
+    return this.http
+      .post(ENDPOINTS.repositoryRestore(repositoryId), null, { observe: 'response' })
+      .pipe(map(() => undefined));
+  }
+
+  /**
+   * Erase a binned repository for good: record, jobs, stored overview,
+   * CodeWiki output + registry, and the extracted archive. No undo.
+   */
+  purgeRepository(repositoryId: string): Observable<void> {
+    return this.http
+      .delete(ENDPOINTS.repositoryPurge(repositoryId), { observe: 'response' })
       .pipe(map(() => undefined));
   }
 

@@ -7,6 +7,7 @@ about HTTP, and nothing here knows about documentation generation.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 from app.core.errors import RepositoryNotFoundError
@@ -104,8 +105,42 @@ class RepositoryService:
     def list(self) -> list[Repository]:
         return self._store.list()
 
+    def bin(self, repository_id: uuid.UUID) -> Repository:
+        """Send a live repository to the bin (recoverable). Raises
+        :class:`RepositoryNotFoundError` if it is not currently live."""
+        binned = self._store.bin(repository_id)
+        if binned is None:
+            raise RepositoryNotFoundError(
+                "No repository with that id.",
+                details={"repository_id": str(repository_id)},
+            )
+        return binned
+
+    def restore(self, repository_id: uuid.UUID) -> Repository:
+        """Bring a binned repository back to the live set. Raises
+        :class:`RepositoryNotFoundError` if it is not in the bin."""
+        restored = self._store.restore(repository_id)
+        if restored is None:
+            raise RepositoryNotFoundError(
+                "No repository with that id is in the bin.",
+                details={"repository_id": str(repository_id)},
+            )
+        return restored
+
+    def get_binned(self, repository_id: uuid.UUID) -> Repository:
+        repository = self._store.get_binned(repository_id)
+        if repository is None:
+            raise RepositoryNotFoundError(
+                "No repository with that id is in the bin.",
+                details={"repository_id": str(repository_id)},
+            )
+        return repository
+
+    def list_binned(self) -> list[tuple[Repository, datetime]]:
+        return self._store.list_binned()
+
     def delete(self, repository_id: uuid.UUID) -> Repository:
-        """Remove one repository record.
+        """Permanently remove one repository record, live or binned.
 
         Only the record itself — the caller is responsible for purging any
         documentation jobs, artifacts and on-disk workspace that belonged to

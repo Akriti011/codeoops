@@ -61,6 +61,12 @@ export const routes: Routes = [
             (m) => m.DocumentationViewerComponent,
           ),
       },
+      {
+        path: 'bin',
+        title: 'Bin · CodeOops',
+        loadComponent: () =>
+          import('./features/bin/bin.component').then((m) => m.BinComponent),
+      },
     ],
   },
   { path: '**', redirectTo: '' },

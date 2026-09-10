@@ -130,7 +130,7 @@ type Filter = 'all' | 'running' | 'completed' | 'failed';
                   type="button"
                   class="rows__del"
                   [disabled]="deletingId() === job.repository_id"
-                  [attr.aria-label]="'Delete ' + nameOf(job)"
+                  [attr.aria-label]="'Move ' + nameOf(job) + ' to bin'"
                   (click)="remove(job)"
                 >
                   <co-icon [name]="deletingId() === job.repository_id ? 'clock' : 'trash'" />
@@ -327,9 +327,9 @@ export class JobListComponent {
   }
 
   /**
-   * Delete the repository behind this job — which also removes every other
-   * job for the same upload/repo and the generated overview. There is no
-   * undo, so it is gated behind a confirm.
+   * Move the repository behind this job to the bin — along with every other
+   * job for the same upload/repo and the generated overview. Recoverable
+   * from the Bin section, so this only needs a light confirm.
    */
   protected remove(job: DocumentationJob): void {
     const repoId = job.repository_id;
@@ -337,8 +337,8 @@ export class JobListComponent {
 
     const label = this.nameOf(job);
     const siblings = this.jobs().filter((j) => j.repository_id === repoId).length;
-    const extra = siblings > 1 ? `\n\nThis removes all ${siblings} runs for it.` : '';
-    if (!confirm(`Delete "${label}" and its generated documentation?${extra}\n\nThis cannot be undone.`)) {
+    const extra = siblings > 1 ? ` and all ${siblings} runs for it` : '';
+    if (!confirm(`Move "${label}"${extra} to the bin? You can restore it from the Bin section.`)) {
       return;
     }
 
@@ -353,7 +353,7 @@ export class JobListComponent {
         },
         error: (err: unknown) => {
           this.deletingId.set(null);
-          this.error.set(httpErrorMessage(err, `Could not delete "${label}".`));
+          this.error.set(httpErrorMessage(err, `Could not move "${label}" to the bin.`));
         },
       });
   }

@@ -320,6 +320,7 @@ export class AppShellComponent {
     // One entry: every generation run and its overview live under /jobs. The
     // separate "Documentation" index was removed — this is that section now.
     { label: 'Documentation', icon: 'documentation', link: '/jobs' },
+    { label: 'Bin', icon: 'trash', link: '/bin' },
   ];
 
   protected readonly collapsed = signal(false);
