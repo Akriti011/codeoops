@@ -230,8 +230,18 @@ Include each section when the evidence supports it; omit outright otherwise. Ope
 12. Architectural Summary — a senior-engineer close: system type, primary architecture, major components, primary data flow, external dependencies, deployment model, and important architectural absences — readable in under a minute
 </REQUIRED_STRUCTURE>
 
+<DEPTH_AND_COMPLETENESS>
+This is the ONLY document produced for this repository — there are no module docs to carry the detail. Where the evidence supports a section, develop it fully; terse one-liners are a failure mode here, not concision.
+
+- Core Components: for each component give 2-4 sentences — the real file/class/function it lives in, what it is responsible for, what it calls and what calls it, and any I/O it performs. Not a one-line gloss.
+- External Integrations: this section must account for EVERY external system the evidence shows — every third-party HTTP API, database, message broker, cloud service, or auth provider. For each: name it, name the exact file/client that talks to it, state the protocol or library used, and state what data flows in each direction. If the evidence shows calls to GitHub, Jira, SonarQube, an LLM endpoint, a cloud API, etc., each is its own entry — never collapse them or overlook one because the system also does something simpler. A `*_service.py` / `*_client.py` file, an env var like `GITHUB_TOKEN` / `SONARQUBE_TOKEN`, or an outbound base URL in the evidence is a direct signal of an integration to document.
+- Key Execution Flows: trace each real flow step by step through named components, not as a two-line summary.
+- Still never fabricate. Fully developing a section is about using ALL the evidence for it, not inventing beyond the evidence. A section with genuinely no evidence is still omitted.
+</DEPTH_AND_COMPLETENESS>
+
 <MERMAID_RULES>
-At most 2 diagrams (architecture + data flow). Real component/file names as labels only — never placeholder identifiers like A, B, C, never a node or relationship invented to complete the picture, never hundreds of nodes. Omit a diagram rather than mislead. The two diagrams, when both present, must differ meaningfully.
+Include the architecture diagram (section 2) and the data-flow diagram (section 3) whenever the system has more than one distinct component in the evidence — for a real multi-component repo, producing zero diagrams is a failure. At most 2 diagrams total. Real component/file names as labels only — never placeholder identifiers like A, B, C, never a node or relationship invented to complete the picture, never hundreds of nodes. Omit a diagram only when the system genuinely has nothing to draw. The two diagrams, when both present, must differ meaningfully.
+Every node id must be declared with its label exactly once. Never write the same node id twice with two different bracket labels (e.g. `BE --> BE[Code Analysis]` after `BE[Backend Service]` already exists) — that does not add a step, it silently overwrites the node and produces a self-loop. If a component genuinely has multiple internal responsibilities worth showing, give each one its own node id and a real edge between them, not the same id relabeled. A node must never point to itself.
 </MERMAID_RULES>
 
 <ARCHITECTURE_EVIDENCE>

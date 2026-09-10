@@ -436,3 +436,116 @@ a { color: inherit; text-decoration: none; }
     transition-duration: 0.001ms !important;
   }
 }
+
+/* --------------------------------------------------------------------------
+   Print / "Save as PDF".
+
+   The documentation viewer sets <body class="printing-doc"> just before
+   window.print() (and clears it on afterprint). In that state everything but
+   the generated document is removed and the article prints full width, so the
+   browser's own "Save as PDF" produces a clean report — with the Mermaid
+   diagrams as real vector SVG, because they are already rendered in the DOM.
+   -------------------------------------------------------------------------- */
+@page {
+  margin: 16mm 14mm;
+}
+
+@media print {
+  body.printing-doc {
+    background: #fff;
+
+    /* Collapse the app chrome, the page header (the document has its own
+       "# <repo>" H1) and the viewer's side rail. */
+    .rail,
+    .topbar,
+    .scrim,
+    .skip-link,
+    co-page-header,
+    .crumbs,
+    .head__subtitle,
+    [page-actions],
+    co-status-pill,
+    .toc,
+    .layout > .rail {
+      display: none !important;
+    }
+
+    .shell,
+    .col,
+    .content,
+    .page,
+    .layout {
+      display: block !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: auto !important;
+      max-width: none !important;
+      grid-template-columns: none !important;
+      overflow: visible !important;
+    }
+
+    /* The document card: drop the card shell, keep the content. */
+    co-card,
+    .card,
+    .card__body {
+      border: 0 !important;
+      box-shadow: none !important;
+      background: none !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }
+
+    /* Only the article that follows the (now-hidden) side rail should print
+       — the "Documents" / "Generation info" cards are inside .rail already. */
+    .md {
+      max-width: none !important;
+      font-size: 10.5pt;
+      color: #000;
+    }
+
+    .md .md-h2,
+    .md .md-h3 {
+      break-after: avoid;
+    }
+
+    .md p,
+    .md li {
+      orphans: 3;
+      widows: 3;
+    }
+
+    /* Never split a diagram, table or code block across a page. */
+    pre.mermaid,
+    .md-pre,
+    .md-table-wrap,
+    .md-quote {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    pre.mermaid {
+      background: none !important;
+      border: 0 !important;
+      padding: 0 !important;
+      text-align: center;
+      margin: 0.4rem 0 1rem;
+    }
+
+    pre.mermaid svg {
+      /* Keep a diagram to roughly half a page so it doesn't push a section
+         onto its own sheet; it stays legible well below this. */
+      max-width: min(100%, 4.6in) !important;
+      max-height: 4.2in !important;
+      height: auto !important;
+    }
+
+    a.md-link {
+      color: #000;
+      text-decoration: underline;
+    }
+
+    /* Make sure backgrounds/borders in code + tables actually print. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

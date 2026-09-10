@@ -22,13 +22,21 @@ services:
       MAIN_MODEL: ${MAIN_MODEL:-codewiki-qwen2.5-16k:latest}
       FALLBACK_MODEL_1: ${FALLBACK_MODEL_1:-codewiki-qwen2.5-16k:latest}
       CLUSTER_MODEL: ${CLUSTER_MODEL:-codewiki-qwen2.5-16k:latest}
+      # Optional. Set in .env to a read-only GitHub PAT to let the engine
+      # clone private repositories (docker-entrypoint.sh wires it into git).
+      # Leave empty for public-repo-only behaviour.
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-dummy}
       OVERVIEW_ONLY_MODE: ${OVERVIEW_ONLY_MODE:-true}
+      # "single" (default, one bounded LLM call) or "mapreduce" (per-module
+      # passes + a reduce — slower, more thorough on multi-subsystem repos).
+      OVERVIEW_MODE: ${OVERVIEW_MODE:-single}
       OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-4096}
       OVERVIEW_MAX_OUTPUT_TOKENS: ${OVERVIEW_MAX_OUTPUT_TOKENS:-1500}
       EVIDENCE_TOKEN_BUDGET: ${EVIDENCE_TOKEN_BUDGET:-1100}
       EVIDENCE_MAX_REPRESENTATIVE_FILES: ${EVIDENCE_MAX_REPRESENTATIVE_FILES:-3}
+      EVIDENCE_MAX_SIGNAL_FINDINGS: ${EVIDENCE_MAX_SIGNAL_FINDINGS:-18}
       LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-1200}
     ports:
       - "8001:8000"

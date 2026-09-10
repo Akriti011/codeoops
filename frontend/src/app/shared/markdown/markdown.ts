@@ -1,13 +1,19 @@
 /**
- * Minimal, dependency-free Markdown → HTML renderer.
+ * Minimal Markdown → HTML renderer, with real Mermaid diagram rendering as
+ * its one dependency (see documentation-viewer.component.ts, which calls
+ * `mermaid.run()` against the `pre.mermaid` elements this file emits).
  *
  * Scope is exactly what CodeWiki emits in `overview.md`: headings, paragraphs,
  * fenced code (including ```mermaid), inline code, bold/italic, links, bullet
  * and numbered lists, blockquotes, tables and horizontal rules.
  *
  * Everything is HTML-escaped before any markup is added, so repository content
- * cannot inject markup into the page. Nothing here invents content: input that
- * this renderer does not recognise is emitted as escaped text.
+ * cannot inject markup into the page — a ```mermaid fence is escaped exactly
+ * like any other fenced block; only the fact that it lands in a `pre.mermaid`
+ * element (mermaid.js's own diagram-source convention, not a raw-HTML sink)
+ * differs, and mermaid.js only ever reads that element's already-decoded text
+ * content, never re-parses it as HTML. Nothing here invents content: input
+ * that this renderer does not recognise is emitted as escaped text.
  */
 
 export interface Heading {
@@ -130,8 +136,17 @@ export function renderMarkdown(source: string | null | undefined): RenderedMarkd
         i++;
       }
       const code = escapeHtml(buffer.join('\n'));
-      const langClass = lang ? ` data-lang="${escapeHtml(lang)}"` : '';
-      out.push(`<pre class="md-pre"${langClass}><code>${code}</code></pre>`);
+      if (lang.toLowerCase() === 'mermaid') {
+        // mermaid.js's own convention: it scans for `pre.mermaid` elements
+        // and replaces their content with the rendered SVG. The text here
+        // is already HTML-escaped above, so the browser decodes it back to
+        // plain diagram source as this is parsed into the DOM — mermaid.js
+        // never sees or executes it as markup, only as text content.
+        out.push(`<pre class="mermaid">${code}</pre>`);
+      } else {
+        const langClass = lang ? ` data-lang="${escapeHtml(lang)}"` : '';
+        out.push(`<pre class="md-pre"${langClass}><code>${code}</code></pre>`);
+      }
       continue;
     }
 

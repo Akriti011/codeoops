@@ -1,7 +1,20 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  Injector,
+  afterNextRender,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import mermaid from 'mermaid';
 
 import { CodeOopsApiService, repositoryLabel } from '../../shared/data/codeoops-api.service';
 import { formatDateTime, httpErrorMessage, isDocumentUnavailable } from '../../shared/data/format';
@@ -58,9 +71,13 @@ const PRIMARY_DOCUMENT = 'overview.md';
               <co-icon [name]="copied() ? 'check' : 'file'" />
               <span>{{ copied() ? 'Copied' : 'Copy Markdown' }}</span>
             </button>
-            <button type="button" class="btn btn--primary btn--sm" (click)="download()">
+            <button type="button" class="btn btn--ghost btn--sm" (click)="download()">
               <co-icon name="download" />
-              <span>Download</span>
+              <span>Markdown</span>
+            </button>
+            <button type="button" class="btn btn--primary btn--sm" (click)="printPdf()">
+              <co-icon name="file" />
+              <span>Save as PDF</span>
             </button>
           }
         </div>
@@ -164,7 +181,7 @@ const PRIMARY_DOCUMENT = 'overview.md';
               </a>
             </co-empty-state>
           } @else {
-            <article class="md" [innerHTML]="html()"></article>
+            <article #articleRef class="md" [innerHTML]="html()"></article>
           }
         </co-card>
       </div>
@@ -252,6 +269,9 @@ export class DocumentationViewerComponent {
   protected readonly slots = DOCUMENT_SLOTS;
 
   protected readonly jobId = signal<string | null>(null);
+  private readonly injector = inject(Injector);
+  private readonly articleRef = viewChild<ElementRef<HTMLElement>>('articleRef');
+
   protected readonly job = signal<DocumentationJob | null>(null);
   protected readonly markdown = signal<string | null>(null);
   protected readonly loading = signal(true);
@@ -294,9 +314,36 @@ export class DocumentationViewerComponent {
   });
 
   constructor() {
+    // Config only — no rendering happens until mermaid.run() is called
+    // below, once real diagram markup actually exists in the DOM.
+    mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'default' });
+
+    // Re-render diagrams every time new markdown produces new `pre.mermaid`
+    // elements. afterNextRender (not a plain effect body) is what actually
+    // guarantees this runs after Angular has written html() into the DOM —
+    // mermaid.run() reads live elements, not the HTML string.
+    effect(() => {
+      this.html();
+      afterNextRender(() => this.renderMermaidDiagrams(), { injector: this.injector });
+    });
+
     this.route.paramMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((params) => {
       this.jobId.set(params.get('id'));
       this.reload();
+    });
+  }
+
+  private renderMermaidDiagrams(): void {
+    const article = this.articleRef()?.nativeElement;
+    if (!article) return;
+    const nodes = Array.from(article.querySelectorAll<HTMLElement>('pre.mermaid'));
+    if (nodes.length === 0) return;
+    // Real diagram source from the backend's own overview.md, rendered by
+    // the actual mermaid library — never a placeholder or hardcoded image.
+    // A malformed diagram fails to render on its own node; it doesn't take
+    // the rest of the document down with it.
+    mermaid.run({ nodes }).catch((err: unknown) => {
+      console.error('Mermaid diagram rendering failed', err);
     });
   }
 
@@ -373,5 +420,38 @@ export class DocumentationViewerComponent {
     anchor.download = PRIMARY_DOCUMENT;
     anchor.click();
     URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Save as PDF via the browser's own print pipeline. The global
+   * `@media print` rules (styles.scss, keyed on `body.printing-doc`) strip the
+   * app chrome and print just the `.md` article — the Mermaid diagrams come
+   * through as real vector SVG because they are already rendered in the DOM.
+   * No server round-trip and no PDF library: the backend's xhtml2pdf export
+   * can only emit the diagrams as code blocks.
+   */
+  protected printPdf(): void {
+    if (!this.markdown()) return;
+
+    const body = document.body;
+    const previousTitle = document.title;
+    // Chrome/Edge/Firefox seed the default PDF filename from document.title.
+    const slug = this.heading()
+      .replace(/[^\w.-]+/g, '-')
+      .replace(/^-/, '')
+      .replace(/-$/, '');
+    document.title = `${slug || 'overview'} - overview`;
+    body.classList.add('printing-doc');
+
+    const restore = (): void => {
+      body.classList.remove('printing-doc');
+      document.title = previousTitle;
+      window.removeEventListener('afterprint', restore);
+    };
+    window.addEventListener('afterprint', restore);
+    // Fallback for the rare browser that never fires afterprint.
+    setTimeout(restore, 60_000);
+
+    window.print();
   }
 }

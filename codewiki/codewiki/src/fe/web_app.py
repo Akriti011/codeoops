@@ -11,6 +11,8 @@ Features:
 """
 
 import argparse
+import logging
+import sys
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse
 
@@ -19,6 +21,23 @@ from .background_worker import BackgroundWorker
 from .routes import WebRoutes
 from .config import WebAppConfig
 
+# uvicorn.run(..., log_level=...) below only configures uvicorn's OWN loggers
+# ("uvicorn", "uvicorn.error", "uvicorn.access") — it never touches the root
+# logger. Every module in this codebase logs via `logging.getLogger(__name__)`
+# with no handler of its own, so with no root handler configured, Python's
+# `logging` package falls back to `logging.lastResort`: a stderr handler
+# fixed at WARNING. The practical effect, confirmed against real container
+# logs: every `logger.info(...)` call in the documentation-generation pipeline
+# (progress messages, timing, "single-shot overview written", etc.) was
+# silently dropped, while `logger.warning`/`logger.error` calls came through
+# fine — making real failures look like nothing had run at all. Configuring
+# the root logger explicitly, before anything else in this process can log,
+# fixes that for every module without touching each one individually.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stdout,
+)
 
 # Initialize FastAPI app
 app = FastAPI(

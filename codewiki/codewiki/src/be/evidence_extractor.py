@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 EVIDENCE_TOKEN_BUDGET = int(os.getenv("EVIDENCE_TOKEN_BUDGET", "3500"))
 _MAX_REPRESENTATIVE_FILES = int(os.getenv("EVIDENCE_MAX_REPRESENTATIVE_FILES", "8"))
 _MAX_SIGNAL_FINDINGS = int(os.getenv("EVIDENCE_MAX_SIGNAL_FINDINGS", "18"))
-_README_CHAR_CAP = 1200
-_REPRESENTATIVE_CHAR_CAP = 1200
+_README_CHAR_CAP = int(os.getenv("EVIDENCE_README_CHAR_CAP", "1800"))
+_REPRESENTATIVE_CHAR_CAP = int(os.getenv("EVIDENCE_REPRESENTATIVE_CHAR_CAP", "2400"))
 _SIGNAL_SCAN_FILE_SIZE_CAP = 200_000  # skip pathologically large source files
 
 _EXCLUDED_DIRS = frozenset(
@@ -52,6 +52,9 @@ _CONFIG_NAMES = {
 _ENTRYPOINT_NAMES = {
     "main.py", "__main__.py", "manage.py", "app.py", "index.ts", "index.js",
     "main.go", "main.java", "program.cs",
+    # SPA / front-end entry points — so a client isn't invisible just because
+    # its code lives in one big file the signal scan skips.
+    "index.html", "app.jsx", "app.tsx", "main.jsx", "main.tsx", "app.js", "app.vue",
 }
 _SIGNAL_SCAN_EXTENSIONS = {
     ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rb", ".rs", ".cs",
@@ -94,6 +97,118 @@ _SIGNAL_PATTERNS: List[Tuple[re.Pattern[str], str]] = [
     (re.compile(r'@Entity\b'), "JPA entity (data layer)"),
     (re.compile(r'\bmongoose\.(model|Schema)\('), "MongoDB model (Mongoose)"),
 ]
+
+# Any of these in a source file means it makes outbound HTTP calls — i.e. it
+# talks to something *outside* this repository. Without this, an integration
+# client only ever reaches the model if its file happens to win the
+# representative-file ranking and survives truncation, which is why the same
+# repo's integrations show up in one run and vanish in the next.
+_HTTP_CLIENT_RE = re.compile(
+    r'\b(?:requests\.(?:get|post|put|patch|delete|request|Session)'
+    r'|httpx\.(?:get|post|put|patch|delete|Client|AsyncClient|stream)'
+    r'|aiohttp\.ClientSession|urllib\.request\.urlopen|http\.client\.HTTPS?Connection'
+    r'|axios(?:\.\w+)?\(|fetch\(|OkHttpClient|WebClient\.(?:create|builder)|RestTemplate)\b'
+)
+
+# (pattern, named external system). Checked only in files that already show an
+# HTTP client or an integration-shaped filename. Order matters: first match wins.
+_INTEGRATION_TARGETS: List[Tuple[re.Pattern[str], str]] = [
+    (re.compile(r'api\.github\.com|github\.com/(?:repos|orgs|users)/|\bfrom\s+github\b|\bGithub\(|\bPyGithub\b|\bghapi\b'), "GitHub API"),
+    (re.compile(r'\.atlassian\.net|/rest/api/(?:2|3|latest)/|/rest/agile/|\bfrom\s+jira\b|\bJIRA\(|\batlassian\b', re.I), "Jira / Atlassian API"),
+    (re.compile(r'\bsonar(?:qube|cloud)?\b|/api/(?:measures|issues|qualitygates|project_analyses|components)\b', re.I), "SonarQube API"),
+    (re.compile(r'api\.openai\.com|/v1/(?:chat/)?completions|/v1/embeddings|\bopenai\.(?:ChatCompletion|chat|Client)\b', re.I), "OpenAI API"),
+    (re.compile(r'\bollama\b|:11434\b|/api/(?:generate|chat)\b', re.I), "Ollama / local LLM runtime"),
+    (re.compile(r'\bactivitywatch\b|\baw[_-]?client\b|:5600\b|/api/0/buckets', re.I), "ActivityWatch API"),
+    (re.compile(r'hooks\.slack\.com|\bslack_sdk\b|\bWebhookClient\b|chat\.postMessage', re.I), "Slack API"),
+    (re.compile(r'api\.telegram\.org', re.I), "Telegram API"),
+    (re.compile(r'\bstripe\b|api\.stripe\.com', re.I), "Stripe API"),
+    (re.compile(r'\btwilio\b|api\.twilio\.com', re.I), "Twilio API"),
+    (re.compile(r's3[.-][\w-]*\.amazonaws\.com|\bboto3\.client\(\s*[\'"]s3|\bboto3\.resource\(\s*[\'"]s3', re.I), "AWS S3"),
+    (re.compile(r'(?:sqs|sns|dynamodb|lambda|secretsmanager)\.[\w-]*\.amazonaws\.com|\bboto3\.client\(\s*[\'"](?:sqs|sns|dynamodb|lambda|secretsmanager)', re.I), "AWS service API"),
+    (re.compile(r'googleapis\.com|\bfrom\s+google\.cloud\b', re.I), "Google Cloud API"),
+    (re.compile(r'\.blob\.core\.windows\.net|\bazure\.\w+\b', re.I), "Azure API"),
+    (re.compile(r'\bsmtplib\b|\baiosmtplib\b|EmailMessage\(|/v3/mail/send|api\.sendgrid\.com|api\.mailgun\.net', re.I), "Email / SMTP"),
+]
+
+# Filenames that name an external system directly ("<thing>_service.py",
+# "jiraClient.ts", "github_api.py"). A strong integration hint even before
+# reading the file, so a small file that got truncated still gets flagged.
+_INTEGRATION_FILENAME_RE = re.compile(
+    r'(?:^|[/_.-])(?:service|client|api|integration|connector|gateway|adapter|provider|webhook)s?'
+    r'(?:[/_.-]|\.\w+$)', re.I
+)
+
+
+def _scan_integrations(rel_path: str, content: str) -> List[str]:
+    """One evidence line per external system a file talks to. Deterministic:
+    the same file always yields the same lines, so integrations never silently
+    drop between runs the way representative-file inclusion can."""
+    has_http = bool(_HTTP_CLIENT_RE.search(content))
+    name_hint = bool(_INTEGRATION_FILENAME_RE.search(rel_path))
+    if not (has_http or name_hint):
+        return []
+
+    hits: List[str] = []
+    for pattern, target in _INTEGRATION_TARGETS:
+        if pattern.search(content):
+            hits.append(f"{rel_path}: outbound integration -> {target}")
+    if hits:
+        return hits
+    if has_http:
+        return [f"{rel_path}: makes outbound HTTP calls to an external service "
+                f"(specific target not identified from the evidence)"]
+    return []
+
+
+_UI_FRAMEWORK_RE = re.compile(
+    r'"(react|react-dom|vue|@angular/core|svelte|next|nuxt|preact|solid-js)"\s*:', re.I
+)
+
+
+def _detect_ui(repo_path: str) -> List[str]:
+    """A client/UI is easy to miss when it's one oversized bundle file the
+    signal scan skips, or a plain-HTML+CDN app with no manifest the model
+    recognises. Detect it structurally and state it as a fact — the overview
+    prompt leans hard toward "name what is NOT present", so a tentative line
+    here gets rounded down to "no frontend"."""
+    ui_exts = (".jsx", ".tsx", ".vue", ".svelte")
+    ext_files: Dict[str, List[str]] = {}
+    ui_dirs: set[str] = set()
+    framework: str | None = None
+    saw_index_html: List[str] = []
+    for root, dirs, files in os.walk(repo_path):
+        dirs[:] = [d for d in dirs if not _is_dir_excluded(d)]
+        for name in files:
+            rel = os.path.relpath(os.path.join(root, name), repo_path).replace(os.sep, "/")
+            ext = os.path.splitext(name)[1].lower()
+            if ext in ui_exts:
+                ext_files.setdefault(ext, []).append(rel)
+                ui_dirs.add(rel.rsplit("/", 1)[0] if "/" in rel else "(root)")
+            if name.lower() == "index.html":
+                saw_index_html.append(rel)
+                ui_dirs.add(rel.rsplit("/", 1)[0] if "/" in rel else "(root)")
+            if name.lower() == "package.json" and framework is None:
+                content, _ = _read_capped(os.path.join(root, name), 4000)
+                m = _UI_FRAMEWORK_RE.search(content)
+                if m:
+                    framework = m.group(1)
+
+    if not ext_files and not saw_index_html:
+        return []
+
+    total = sum(len(v) for v in ext_files.values())
+    ext_summary = ", ".join(f"{len(v)} {e}" for e, v in sorted(ext_files.items()))
+    sample = sorted({f for v in ext_files.values() for f in v})[:6] or saw_index_html[:3]
+    fw = f" ({framework})" if framework else (" (React/JSX)" if ".jsx" in ext_files else "")
+    dirs_txt = ", ".join(sorted(d for d in ui_dirs if d != "(root)")) or "(repo root)"
+    return [
+        f"This repository DOES contain a client / front end{fw}. It is a real, "
+        f"first-class component of the system — do not describe the repo as "
+        f"backend-only or say no frontend was found.",
+        f"Front-end location: {dirs_txt}/  ({total} component file(s): {ext_summary}"
+        + (f"; index.html present" if saw_index_html else "") + ")",
+        f"Front-end files: {', '.join(sample)}",
+    ]
 
 
 def _is_dir_excluded(dirname: str) -> bool:
@@ -204,6 +319,33 @@ def _scan_signals(rel_path: str, content: str) -> List[str]:
     return hits
 
 
+def _build_module_map(components: Dict[str, Node]) -> str:
+    """One line per source directory: how many components live there and the
+    files that carry them. Deterministic from the dependency graph, so every
+    real subsystem is named even when its files don't fit the evidence budget
+    individually — this is what stops the overview from collapsing a
+    multi-package backend into a single 'Backend Service' component."""
+    by_dir: Dict[str, Dict[str, object]] = {}
+    for node in components.values():
+        rel = (node.relative_path or "").replace(os.sep, "/")
+        if not rel or rel.startswith(".."):
+            continue
+        d = rel.rsplit("/", 1)[0] if "/" in rel else "(root)"
+        slot = by_dir.setdefault(d, {"count": 0, "files": set()})
+        slot["count"] = int(slot["count"]) + 1  # type: ignore[arg-type]
+        files_set = slot["files"]
+        if isinstance(files_set, set) and len(files_set) < 6:
+            files_set.add(rel.rsplit("/", 1)[-1])
+    if not by_dir:
+        return ""
+    lines: List[str] = []
+    for d in sorted(by_dir):
+        slot = by_dir[d]
+        files = ", ".join(sorted(slot["files"])) if isinstance(slot["files"], set) else ""
+        lines.append(f"- {d}/ — {slot['count']} component(s); files: {files}")
+    return "\n".join(lines)
+
+
 def _rank_representative_files(
     components: Dict[str, Node], leaf_nodes: List[str], limit: int
 ) -> List[str]:
@@ -232,6 +374,7 @@ def build_architecture_evidence(
 
     tiers: Dict[str, List[Tuple[str, str]]] = {name: [] for name, _ in _TIER_ORDER}
     signal_findings: List[str] = []
+    integration_findings: List[str] = []
     for root, dirs, files in os.walk(repo_path):
         dirs[:] = [d for d in dirs if not _is_dir_excluded(d)]
         for filename in files:
@@ -240,8 +383,6 @@ def build_architecture_evidence(
             tier = _classify(rel_path, filename)
             if tier is not None:
                 tiers[tier].append((rel_path, abs_path))
-                continue
-            if len(signal_findings) >= _MAX_SIGNAL_FINDINGS:
                 continue
             ext = os.path.splitext(filename)[1].lower()
             if ext not in _SIGNAL_SCAN_EXTENSIONS:
@@ -252,7 +393,16 @@ def build_architecture_evidence(
             except OSError:
                 continue
             content, _ = _read_capped(abs_path, cap_chars=20_000)
-            signal_findings.extend(_scan_signals(rel_path, content))
+            if len(signal_findings) < _MAX_SIGNAL_FINDINGS:
+                signal_findings.extend(_scan_signals(rel_path, content))
+            integration_findings.extend(_scan_integrations(rel_path, content))
+    # Dedup integrations, keep first occurrence order.
+    _seen_int: set[str] = set()
+    integration_findings = [
+        x for x in integration_findings if not (x in _seen_int or _seen_int.add(x))
+    ]
+    ui_findings = _detect_ui(repo_path)
+    module_map = _build_module_map(components)
 
     sections: List[str] = []
     included: List[str] = []
@@ -285,6 +435,28 @@ def build_architecture_evidence(
             ".",
             "\n".join(f"- {line}" for line in signal_findings[:_MAX_SIGNAL_FINDINGS]),
         )
+
+    # External integrations next, in their own block so the model treats each
+    # as a first-class system to document rather than a detail buried in a
+    # file body it may or may not have received.
+    if integration_findings:
+        try_add(
+            "Detected external integrations (each is a distinct system this repo calls out to)",
+            ".",
+            "\n".join(f"- {line}" for line in integration_findings[:30]),
+        )
+
+    if ui_findings:
+        try_add(
+            "Detected client / user interface",
+            ".",
+            "\n".join(f"- {line}" for line in ui_findings),
+        )
+
+    # Every source package by name, so a multi-package codebase is never
+    # flattened into one component for lack of per-file evidence.
+    if module_map:
+        try_add("Source module map (from the dependency graph)", ".", module_map)
 
     readme_tier, manifest_tier, config_tier, api_tier, entrypoint_tier = (
         tiers[name] for name, _ in _TIER_ORDER

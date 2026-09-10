@@ -90,9 +90,10 @@ class JobRunner:
         baseline = await self._client.get_job(job.codewiki_job_id)
 
         self._jobs.update(job.with_update(progress_message="Submitting to CodeWiki…"))
+        expected_repo_path: str | None = None
         if repository.source is RepositorySource.UPLOAD:
-            container_path = self._to_container_local_path(repository.upload_workspace_path)
-            await self._client.submit_local(job.codewiki_job_id, container_path)
+            expected_repo_path = self._to_container_local_path(repository.upload_workspace_path)
+            await self._client.submit_local(job.codewiki_job_id, expected_repo_path)
         else:
             await self._client.submit(repository.repository_url)
 
@@ -128,7 +129,7 @@ class JobRunner:
 
         overview_text = read_overview(docs_dir)
         metadata = read_metadata(docs_dir)
-        verify_binding(metadata, job.codewiki_job_id)
+        verify_binding(metadata, job.codewiki_job_id, expected_repo_path=expected_repo_path)
 
         self._artifacts.save_overview(job.id, overview_text.encode("utf-8"))
 

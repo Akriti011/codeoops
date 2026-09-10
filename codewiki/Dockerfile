@@ -27,6 +27,7 @@ COPY codewiki ./codewiki
 COPY img ./img
 COPY pyproject.toml .
 COPY README.md .
+COPY --chmod=755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN mkdir -p output/cache output/temp output/docs output/dependency_graphs output/uploads
 
@@ -38,4 +39,7 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -f http://localhost:8000/ || exit 1
 
+# The entrypoint wires up GitHub token auth (if GITHUB_TOKEN is set) and then
+# execs this CMD unchanged — see docker-entrypoint.sh.
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["python", "codewiki/run_web_app.py", "--host", "0.0.0.0", "--port", "8000"]

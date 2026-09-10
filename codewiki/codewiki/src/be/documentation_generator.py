@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import re
 from typing import Dict, List, Any
 from copy import deepcopy
 import traceback
@@ -13,6 +14,8 @@ from codewiki.src.be.dependency_analyzer import DependencyGraphBuilder
 from codewiki.src.be.backend import LLMBackend, get_backend
 from codewiki.src.be import evidence_extractor
 from codewiki.src.be import overview_mapreduce
+from codewiki.src.be import module_descriptor
+from codewiki.src.be import module_grouper
 from codewiki.src.be.prompt_template import (
     REPO_OVERVIEW_PROMPT,
     MODULE_OVERVIEW_PROMPT,
@@ -40,6 +43,19 @@ from codewiki.src.utils import file_manager
 # concise 2,000-3,000 token HLD, not a long report, per OVERVIEW_ONLY_PROMPT.
 OVERVIEW_ONLY_MAX_OUTPUT_TOKENS = int(os.getenv("OVERVIEW_MAX_OUTPUT_TOKENS", "3000"))
 
+# Ollama context window for the single overview_only completion call. Must be
+# passed explicitly: llm_services.call_llm() only routes to Ollama's native
+# /api/chat endpoint (the one that actually honors a context override — see
+# its docstring) when a caller passes num_ctx itself. Before this, this call
+# passed nothing, so every real generation silently loaded the model at its
+# Modelfile-baked 16384 default instead of this value — confirmed via
+# `ollama ps` reporting context_length=16384 and a partial CPU/GPU split
+# instead of 100% GPU residency, during a real ZIP-upload run of a 3-file
+# repository that was still "GENERATING" past 5 minutes. overview_mapreduce.py
+# already does this correctly for its own two calls; this brings the
+# single-call production path (OVERVIEW_ONLY_MODE=true) in line with it.
+OVERVIEW_ONLY_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
+
 
 def _strip_outer_code_fence(text: str) -> str:
     """Models sometimes wrap an entire Markdown answer in its own code fence
@@ -54,6 +70,47 @@ def _strip_outer_code_fence(text: str) -> str:
     if len(lines) >= 2 and lines[0].strip().startswith("```") and lines[-1].strip() == "```":
         return "\n".join(lines[1:-1]).strip()
     return text.strip()
+
+
+_MERMAID_BLOCK_RE = re.compile(r"```mermaid\n(.*?)```", re.DOTALL)
+_MERMAID_EDGE_RE = re.compile(r"^\s*([A-Za-z0-9_]+)(?:\[[^\]]*\])?\s*-->\s*([A-Za-z0-9_]+)", re.MULTILINE)
+_MERMAID_LABELED_NODE_RE = re.compile(r"\b([A-Za-z0-9_]+)\[([^\]]*)\]")
+
+
+def _strip_degenerate_mermaid_diagrams(markdown: str) -> str:
+    """Remove a Mermaid block with no real edges, or that redefines the same
+    node id with two different bracket labels.
+
+    Observed directly on a real 103-file repository: the model "relabeled"
+    a node with a repeated `BE --> BE[Code Analysis]` / `BE --> BE[...]`
+    line instead of drawing an edge to a genuinely new node. That parses as
+    valid Mermaid — no error anywhere — but renders as an empty or visually
+    collapsed diagram in the browser (confirmed: a real self-loop-only edge
+    list passes fine; this exact conflicting-relabel pattern is what
+    produced the blank box). A pure edge check alone doesn't catch it,
+    since the same diagram usually still has one or two genuine edges mixed
+    in with the relabeling noise — the label conflict itself is the actual
+    signal. Also now forbidden directly in MERMAID_RULES
+    (prompt_template.py), but a 7B model following a rule "mostly" isn't
+    the same as it never happening — this is the deterministic backstop,
+    matching the same principle the prompt already states: omit a diagram
+    rather than mislead.
+    """
+
+    def _replace(match: "re.Match[str]") -> str:
+        body = match.group(1)
+        edges = _MERMAID_EDGE_RE.findall(body)
+        if not edges or all(source == target for source, target in edges):
+            return ""
+        seen_labels: dict[str, str] = {}
+        for node_id, label in _MERMAID_LABELED_NODE_RE.findall(body):
+            label = label.strip()
+            if node_id in seen_labels and seen_labels[node_id] != label:
+                return ""
+            seen_labels.setdefault(node_id, label)
+        return match.group(0)
+
+    return _MERMAID_BLOCK_RE.sub(_replace, markdown)
 
 
 class IncompleteDocumentationError(Exception):
@@ -332,6 +389,49 @@ class DocumentationGenerator:
             )
         return working_dir
 
+    @staticmethod
+    def _insert_deterministic_diagram(overview_content: str, components: Dict[str, Any]) -> str:
+        """Fall back to a real, graph-derived architecture diagram when the
+        model's own attempt produced nothing usable (never generated one, or
+        it was stripped as degenerate above).
+
+        "Make sure diagrams actually appear" doesn't stop being true just
+        because a 7B model's diagram attempt didn't work out this run — and
+        the pipeline already has a diagram builder that can never be wrong
+        in the way an LLM one can, because it draws directly from
+        depends_on edges instead of composing a picture from a prompt:
+        overview_mapreduce.py's map-reduce path uses it for exactly this.
+        Reused as-is here (group_modules, _module_edge_weights,
+        build_module_diagram, _insert_architecture_section are all already
+        covered by their own tests) rather than duplicated. Returns
+        overview_content unchanged if the repository has too few
+        cross-module edges to draw one honestly — that's the same "omit
+        rather than mislead" rule, not a bug.
+        """
+        files = sorted({node.relative_path for node in components.values()})
+        groups = module_grouper.group_modules(files)
+        if len(groups) < 2:
+            return overview_content
+
+        file_to_module = {f: group.name for group in groups for f in group.files}
+        edges: Dict[tuple, int] = {}
+        for group in groups:
+            weights = module_descriptor._module_edge_weights(
+                group.name, group.files, components, file_to_module
+            )
+            for target, weight in weights.items():
+                edges[(group.name, target)] = weight
+
+        diagram = overview_mapreduce.build_module_diagram([g.name for g in groups], edges)
+        if not diagram:
+            return overview_content
+
+        logger.info(
+            "Single-shot overview: model produced no usable diagram; inserted a "
+            "deterministic one from %d module(s) instead.", len(groups),
+        )
+        return overview_mapreduce._insert_architecture_section(overview_content, diagram)
+
     async def generate_overview_only(self, components: Dict[str, Any], leaf_nodes: List[str]) -> str:
         """Generate exactly one overview.md via a single bounded, non-agentic
         completion call.
@@ -352,8 +452,8 @@ class DocumentationGenerator:
         repo_name = os.path.basename(os.path.normpath(self.config.repo_path))
         logger.info(
             "Generating single-shot overview (overview_only mode) for %s: "
-            "%d component(s), %d leaf node(s)",
-            repo_name, len(components), len(leaf_nodes),
+            "repo_path=%s %d component(s), %d leaf node(s)",
+            repo_name, self.config.repo_path, len(components), len(leaf_nodes),
         )
 
         architecture_evidence = evidence_extractor.build_architecture_evidence(
@@ -369,6 +469,7 @@ class DocumentationGenerator:
                 prompt,
                 temperature=0.2,
                 max_tokens=OVERVIEW_ONLY_MAX_OUTPUT_TOKENS,
+                num_ctx=OVERVIEW_ONLY_NUM_CTX,
             )
         except Exception as e:
             logger.error(f"Error generating single-shot overview for {repo_name}: {str(e)}")
@@ -384,6 +485,23 @@ class DocumentationGenerator:
             overview_content = response.strip()
 
         overview_content = _strip_outer_code_fence(overview_content)
+        # Same belt-and-braces strip overview_mapreduce.py's reduce step
+        # already applies to its own output (see its docstring) — observed
+        # here too, on a real 103-file repository: a stray
+        # ![Architecture Diagram](#architecture-diagram) line the model
+        # can't actually back with an image, left in front of the real
+        # ```mermaid block. The prompt asking for real diagrams doesn't
+        # stop it also reaching for this placeholder-image habit; strip it
+        # deterministically rather than rely on the prompt alone.
+        overview_content = overview_mapreduce._strip_image_links(overview_content)
+        overview_content = _strip_degenerate_mermaid_diagrams(overview_content)
+
+        if "```mermaid" not in overview_content:
+            logger.info(
+                "Single-shot overview: no usable Mermaid diagram in the model's "
+                "response; attempting a deterministic, edge-derived fallback."
+            )
+            overview_content = self._insert_deterministic_diagram(overview_content, components)
 
         if not overview_content:
             raise IncompleteDocumentationError(["overview"])

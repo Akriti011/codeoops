@@ -6,15 +6,15 @@ Coordinates language-specific analyzers to build comprehensive call graphs
 across different programming languages in a repository.
 """
 
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 import logging
+import threading
 import traceback
 import time
 import signal
 import re
 from collections import defaultdict
 from pathlib import Path
-from contextlib import contextmanager
 from codewiki.src.be.dependency_analyzer.models.core import Node, CallRelationship
 from codewiki.src.be.dependency_analyzer.utils.patterns import CODE_EXTENSIONS
 from codewiki.src.be.dependency_analyzer.utils.security import safe_open_text
@@ -32,26 +32,57 @@ class TimeoutError(Exception):
     pass
 
 
-@contextmanager
-def timeout(seconds):
-    """Context manager for timeout on file parsing."""
-    def signal_handler(signum, frame):
-        raise TimeoutError(f"File parsing exceeded {seconds}s timeout")
-    
-    # Only use signal on Unix systems (not Windows)
-    try:
-        old_handler = signal.signal(signal.SIGALRM, signal_handler)
+def run_with_timeout(fn: Callable[[], None], seconds: int) -> None:
+    """Run ``fn()`` with a per-call wall-clock timeout that works on any thread.
+
+    This used to be a ``signal.alarm``-based context manager. ``signal.alarm``
+    / ``signal.signal`` only work on the interpreter's *main* thread — and the
+    real service never analyses a repository there: ``fe/background_worker.py``
+    runs every job on a dedicated worker thread. Off the main thread
+    ``signal.signal(SIGALRM, ...)`` does not raise ``AttributeError`` (the only
+    case the old code handled — Windows, which has no ``SIGALRM``); it raises
+    ``ValueError: signal only works in main thread of the main interpreter``.
+    That escaped the old guard and was silently swallowed by
+    ``_analyze_code_file``'s ``except Exception`` branch *before any file was
+    parsed*, so in production every job produced zero components while the logs
+    still said "0 failed". Confirmed by direct reproduction.
+
+    Main thread: keep the original signal-based interrupt (unchanged).
+    Any other thread: run ``fn`` in a bounded daemon thread and stop waiting
+    after ``seconds``. A genuinely stuck parse keeps running in that abandoned
+    thread rather than being force-killed (the unavoidable cost of a
+    non-signal timeout in CPython), but the caller — and therefore the whole
+    job — is never blocked on one pathological file, which is the guarantee
+    this timeout exists to provide.
+    """
+    if threading.current_thread() is threading.main_thread() and hasattr(signal, "SIGALRM"):
+        def _handler(signum, frame):
+            raise TimeoutError(f"File parsing exceeded {seconds}s timeout")
+
+        old_handler = signal.signal(signal.SIGALRM, _handler)
         signal.alarm(seconds)
-        yield
-    except AttributeError:
-        # Windows doesn't support SIGALRM, skip timeout
-        yield
-    finally:
         try:
+            fn()
+        finally:
             signal.alarm(0)
             signal.signal(signal.SIGALRM, old_handler)
-        except (AttributeError, ValueError):
-            pass
+        return
+
+    box: Dict[str, BaseException] = {}
+
+    def _runner() -> None:
+        try:
+            fn()
+        except BaseException as exc:  # noqa: BLE001 - surfaced on the caller's thread
+            box["error"] = exc
+
+    worker = threading.Thread(target=_runner, daemon=True)
+    worker.start()
+    worker.join(seconds)
+    if worker.is_alive():
+        raise TimeoutError(f"File parsing exceeded {seconds}s timeout")
+    if "error" in box:
+        raise box["error"]
 
 
 class CallGraphAnalyzer:
@@ -222,34 +253,38 @@ class CallGraphAnalyzer:
 
         base = Path(repo_dir)
         file_path = base / file_info["path"]
+        language = file_info["language"]
+
+        def _dispatch() -> None:
+            content = safe_open_text(base, file_path)
+            if language == "python":
+                self._analyze_python_file(file_path, content, repo_dir)
+            elif language == "javascript":
+                self._analyze_javascript_file(file_path, content, repo_dir)
+            elif language == "typescript":
+                self._analyze_typescript_file(file_path, content, repo_dir)
+            elif language == "java":
+                self._analyze_java_file(file_path, content, repo_dir)
+            elif language == "kotlin":
+                self._analyze_kotlin_file(file_path, content, repo_dir)
+            elif language == "csharp":
+                self._analyze_csharp_file(file_path, content, repo_dir)
+            elif language == "c":
+                self._analyze_c_file(file_path, content, repo_dir)
+            elif language == "cpp":
+                self._analyze_cpp_file(file_path, content, repo_dir)
+            elif language == "php":
+                self._analyze_php_file(file_path, content, repo_dir)
+            # else:
+            #     logger.warning(
+            #         f"Unsupported language for call graph analysis: {language} for file {file_path}"
+            #     )
 
         try:
-            # Add timeout protection (30 seconds per file max)
-            with timeout(30):
-                content = safe_open_text(base, file_path)
-                language = file_info["language"]
-                if language == "python":
-                    self._analyze_python_file(file_path, content, repo_dir)
-                elif language == "javascript":
-                    self._analyze_javascript_file(file_path, content, repo_dir)
-                elif language == "typescript":
-                    self._analyze_typescript_file(file_path, content, repo_dir)
-                elif language == "java":
-                    self._analyze_java_file(file_path, content, repo_dir)
-                elif language == "kotlin":
-                    self._analyze_kotlin_file(file_path, content, repo_dir)
-                elif language == "csharp":
-                    self._analyze_csharp_file(file_path, content, repo_dir)
-                elif language == "c":
-                    self._analyze_c_file(file_path, content, repo_dir)
-                elif language == "cpp":
-                    self._analyze_cpp_file(file_path, content, repo_dir)
-                elif language == "php":
-                    self._analyze_php_file(file_path, content, repo_dir)
-                # else:
-                #     logger.warning(
-                #         f"Unsupported language for call graph analysis: {language} for file {file_path}"
-                #     )
+            # Per-file timeout protection (30 seconds per file max). See
+            # run_with_timeout: this must not be a bare signal.alarm call,
+            # since analysis always runs off the main thread in the service.
+            run_with_timeout(_dispatch, 30)
 
         except TimeoutError as e:
             logger.warning(f"⏱️  Timeout analyzing {file_path}: {str(e)}")
