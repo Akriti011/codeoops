@@ -10,6 +10,7 @@ CodeWiki's own copy.
 
 from __future__ import annotations
 
+import shutil
 import threading
 import uuid
 from pathlib import Path
@@ -37,6 +38,11 @@ class ArtifactStore:
         if not path.is_file():
             return None
         return path.read_bytes()
+
+    def delete(self, job_id: uuid.UUID) -> None:
+        """Remove this job's verified-artifact directory. Idempotent."""
+        with self._lock:
+            shutil.rmtree(self._job_dir(job_id), ignore_errors=True)
 
     def _job_dir(self, job_id: uuid.UUID) -> Path:
         return self._root / str(job_id)

@@ -317,8 +317,9 @@ export class AppShellComponent {
   protected readonly nav: readonly NavItem[] = [
     { label: 'Dashboard', icon: 'dashboard', link: '/dashboard' },
     { label: 'Analyze repository', icon: 'repositories', link: '/analyze' },
-    { label: 'Jobs', icon: 'jobs', link: '/jobs' },
-    { label: 'Documentation', icon: 'documentation', link: '/documentation' },
+    // One entry: every generation run and its overview live under /jobs. The
+    // separate "Documentation" index was removed — this is that section now.
+    { label: 'Documentation', icon: 'documentation', link: '/jobs' },
   ];
 
   protected readonly collapsed = signal(false);

@@ -36,9 +36,9 @@ type Filter = 'all' | 'running' | 'completed' | 'failed';
   template: `
     <div class="page stack-lg">
       <co-page-header
-        title="Jobs"
-        subtitle="Every documentation run submitted to this backend."
-        [crumbs]="[{ label: 'Dashboard', link: '/dashboard' }, { label: 'Jobs' }]"
+        title="Documentation"
+        subtitle="Every documentation run submitted to this backend, and its generated overview."
+        [crumbs]="[{ label: 'Dashboard', link: '/dashboard' }, { label: 'Documentation' }]"
       >
         <div page-actions class="row">
           <button type="button" class="btn btn--ghost btn--sm" (click)="reload()" [disabled]="loading()">
@@ -47,7 +47,7 @@ type Filter = 'all' | 'running' | 'completed' | 'failed';
           </button>
           <a class="btn btn--primary btn--sm" routerLink="/analyze">
             <co-icon name="plus" />
-            <span>New job</span>
+            <span>New documentation</span>
           </a>
         </div>
       </co-page-header>
@@ -126,6 +126,16 @@ type Filter = 'all' | 'running' | 'completed' | 'failed';
 
                 <co-status-pill [label]="statusText(job)" [tone]="statusTone(job)" />
 
+                <button
+                  type="button"
+                  class="rows__del"
+                  [disabled]="deletingId() === job.repository_id"
+                  [attr.aria-label]="'Delete ' + nameOf(job)"
+                  (click)="remove(job)"
+                >
+                  <co-icon [name]="deletingId() === job.repository_id ? 'clock' : 'trash'" />
+                </button>
+
                 <a class="rows__go" [routerLink]="['/jobs', job.id]" [attr.aria-label]="'Open ' + nameOf(job)">
                   <co-icon name="chevron-right" />
                 </a>
@@ -134,16 +144,16 @@ type Filter = 'all' | 'running' | 'completed' | 'failed';
           </ul>
         } @else if (jobs().length) {
           <co-empty-state
-            title="No jobs match this filter"
+            title="Nothing matches this filter"
             message="Change the filter or clear the search to see the rest."
             icon="search"
             compact
           />
         } @else {
           <co-empty-state
-            title="No jobs yet"
-            message="Submit a repository and it will appear here with live status."
-            icon="jobs"
+            title="No documentation yet"
+            message="Submit a repository and its run will appear here with live status."
+            icon="documentation"
             tone="red"
             compact
           >
@@ -240,6 +250,17 @@ type Filter = 'all' | 'running' | 'completed' | 'failed';
       &:hover { background: var(--grey-100); color: var(--text); }
     }
 
+    .rows__del {
+      width: 1.75rem; height: 1.75rem; flex: none;
+      display: grid; place-items: center;
+      border: 0; background: none; cursor: pointer;
+      border-radius: var(--r-sm);
+      color: var(--text-muted);
+      co-icon { width: 1.05rem; height: 1.05rem; }
+      &:hover:not(:disabled) { background: var(--red-50); color: var(--red-600); }
+      &:disabled { cursor: progress; opacity: 0.6; }
+    }
+
     .state { padding: var(--s-8) var(--s-5); text-align: center; }
     .state--error { color: var(--err-600); }
 
@@ -257,6 +278,8 @@ export class JobListComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly filter = signal<Filter>('all');
   protected readonly query = signal('');
+  /** repository_id currently being deleted, or null. */
+  protected readonly deletingId = signal<string | null>(null);
 
   protected readonly tabs: ReadonlyArray<{ key: Filter; label: string }> = [
     { key: 'all', label: 'All' },
@@ -301,6 +324,38 @@ export class JobListComponent {
 
   protected onQuery(event: Event): void {
     this.query.set((event.target as HTMLInputElement).value);
+  }
+
+  /**
+   * Delete the repository behind this job — which also removes every other
+   * job for the same upload/repo and the generated overview. There is no
+   * undo, so it is gated behind a confirm.
+   */
+  protected remove(job: DocumentationJob): void {
+    const repoId = job.repository_id;
+    if (!repoId || this.deletingId()) return;
+
+    const label = this.nameOf(job);
+    const siblings = this.jobs().filter((j) => j.repository_id === repoId).length;
+    const extra = siblings > 1 ? `\n\nThis removes all ${siblings} runs for it.` : '';
+    if (!confirm(`Delete "${label}" and its generated documentation?${extra}\n\nThis cannot be undone.`)) {
+      return;
+    }
+
+    this.deletingId.set(repoId);
+    this.api
+      .deleteRepository(repoId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.jobs.update((list) => list.filter((j) => j.repository_id !== repoId));
+          this.deletingId.set(null);
+        },
+        error: (err: unknown) => {
+          this.deletingId.set(null);
+          this.error.set(httpErrorMessage(err, `Could not delete "${label}".`));
+        },
+      });
   }
 
   protected countFor(filter: Filter): number {

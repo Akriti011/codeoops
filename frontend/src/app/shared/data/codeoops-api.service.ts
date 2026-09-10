@@ -150,6 +150,18 @@ export class CodeOopsApiService {
       .pipe(map((content) => ({ name, content }) satisfies DocumentationArtifact));
   }
 
+  /**
+   * Delete a repository and everything generated for it — every documentation
+   * job, its stored overview, and (for an uploaded ZIP) the extracted archive
+   * on the backend's disk. Resolves on 204; errors if the repository is
+   * already gone (404) or the backend refuses.
+   */
+  deleteRepository(repositoryId: string): Observable<void> {
+    return this.http
+      .delete(ENDPOINTS.repository(repositoryId), { observe: 'response' })
+      .pipe(map(() => undefined));
+  }
+
   /** Dashboard counters, computed by the backend from real stored rows. */
   getStats(): Observable<DashboardStats> {
     return this.http.get<RawStats>(ENDPOINTS.stats).pipe(

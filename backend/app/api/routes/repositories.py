@@ -156,3 +156,27 @@ async def get_repository_jobs(
     return JobListResponse(
         items=[JobResponse.model_validate(item) for item in items], total=len(items)
     )
+
+
+@router.delete(
+    "/{repository_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a repository and everything generated for it",
+    responses={404: {"model": ErrorResponse, "description": "Unknown repository"}},
+)
+async def delete_repository(
+    repository_id: uuid.UUID,
+    repositories: RepositoryServiceDep,
+    jobs: DocumentationJobServiceDep,
+) -> Response:
+    """Remove a repository record together with all of its documentation
+    jobs, their verified artifacts, and CodeWiki's own output directories
+    (and, for an uploaded ZIP, the extracted archive on disk).
+
+    Idempotent from the caller's point of view only in that a second call
+    returns ``404`` — the first call is what does the work.
+    """
+    repository = repositories.get(repository_id)  # 404s if unknown
+    await jobs.purge_repository_data(repository)
+    repositories.delete(repository_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

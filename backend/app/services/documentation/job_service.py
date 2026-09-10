@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import uuid
 from pathlib import Path
 
@@ -54,12 +55,14 @@ class DocumentationJobService:
         client: CodeWikiClient,
         *,
         base_url: str,
+        output_root: Path,
     ) -> None:
         self._jobs = jobs
         self._artifacts = artifacts
         self._runner = runner
         self._client = client
         self._base_url = base_url
+        self._output_root = output_root
 
     def start_generation(self, repository: Repository) -> DocumentationJob:
         """Create a job and schedule its run. Returns immediately — never blocks."""
@@ -94,6 +97,54 @@ class DocumentationJobService:
 
     def latest_for_repository(self, repository_id: uuid.UUID) -> DocumentationJob | None:
         return self._jobs.latest_for_repository(repository_id)
+
+    async def purge_repository_data(self, repository: Repository) -> int:
+        """Delete every documentation trace of ``repository``: its job records,
+        their verified artifacts, CodeWiki's own output directories on the
+        shared volume, and CodeWiki's own registry entries. Returns the number
+        of job records removed. Safe to call for a repository that never
+        generated anything.
+        """
+        jobs = self._jobs.list_for_repository(repository.id)
+        codewiki_job_ids = {job.codewiki_job_id for job in jobs}
+
+        for job in jobs:
+            self._artifacts.delete(job.id)
+            self._jobs.remove(job.id)
+
+        # CodeWiki writes each run under output/docs/<codewiki_job_id>-docs on
+        # the volume the backend also mounts (settings.codewiki_output_root),
+        # and keeps its own job registry — clear both so its console doesn't
+        # keep advertising a completed job whose docs are gone.
+        docs_root = self._output_root / "docs"
+        for codewiki_job_id in codewiki_job_ids:
+            self._safe_rmtree(docs_root / f"{codewiki_job_id}-docs")
+            await self._client.delete_job(codewiki_job_id)
+
+        # Upload-sourced repositories also have the extracted archive at
+        # output/uploads/<repository_id>/ (see ZipUploadService.ingest).
+        if repository.source is RepositorySource.UPLOAD:
+            self._safe_rmtree(self._output_root / "uploads" / str(repository.id))
+
+        logger.info(
+            "Purged documentation data for repository %s: %d job(s), %d CodeWiki output dir(s)",
+            repository.id, len(jobs), len(codewiki_job_ids),
+        )
+        return len(jobs)
+
+    def _safe_rmtree(self, path: Path) -> None:
+        """``shutil.rmtree`` guarded so a bad id can never escape the output
+        root (belt-and-braces: every id fed in here is a UUID or a
+        host-validated ``owner--repo`` slug)."""
+        try:
+            root = self._output_root.resolve()
+            target = path.resolve()
+        except OSError:
+            return
+        if target == root or root not in target.parents:
+            logger.warning("Refusing to delete %s — not inside the output root", path)
+            return
+        shutil.rmtree(target, ignore_errors=True)
 
     def get_overview_bytes(self, job_id: uuid.UUID) -> bytes:
         job = self.get_job(job_id)
@@ -141,5 +192,10 @@ def get_job_service(settings: Settings | None = None) -> DocumentationJobService
     )
 
     return DocumentationJobService(
-        jobs=jobs, artifacts=artifacts, runner=runner, client=client, base_url=base_url
+        jobs=jobs,
+        artifacts=artifacts,
+        runner=runner,
+        client=client,
+        base_url=base_url,
+        output_root=output_root,
     )

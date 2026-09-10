@@ -55,6 +55,16 @@ class BackgroundWorker:
     def get_job_status(self, job_id: str) -> JobStatus:
         """Get job status by ID."""
         return self.job_status.get(job_id)
+
+    def remove_job(self, job_id: str) -> bool:
+        """Forget one job entirely (in-memory registry + persisted jobs.json).
+        Returns True if a job with that id existed. Used by CodeOops when a
+        repository is deleted, so this engine's own job list doesn't keep
+        showing a completed job whose documentation has been removed."""
+        existed = self.job_status.pop(job_id, None) is not None
+        if existed:
+            self.save_job_statuses()
+        return existed
     
     def get_all_jobs(self) -> Dict[str, JobStatus]:
         """Get all job statuses."""

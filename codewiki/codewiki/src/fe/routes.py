@@ -203,8 +203,21 @@ class WebRoutes:
         job = self.background_worker.get_job_status(job_id)
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
-        
+
         return JobStatusResponse(**asdict(job))
+
+    async def delete_job(self, job_id: str) -> JSONResponse:
+        """API endpoint to forget one job (registry + jobs.json).
+
+        The generated documentation directory on the shared volume is removed
+        by CodeOops's own delete cascade; this only clears the engine's job
+        list so it stops advertising a job whose docs are gone.
+        """
+        removed = self.background_worker.remove_job(job_id)
+        return JSONResponse(
+            {"job_id": job_id, "deleted": removed},
+            status_code=200 if removed else 404,
+        )
     
     async def view_docs(self, job_id: str) -> RedirectResponse:
         """View generated documentation."""

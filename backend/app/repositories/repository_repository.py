@@ -33,6 +33,11 @@ class RepositoryStore(ABC):
     def list(self) -> list[Repository]: ...
 
     @abstractmethod
+    def remove(self, repository_id: uuid.UUID) -> Repository | None:
+        """Delete one repository. Returns the removed record, or ``None`` if
+        there was no such id. Idempotent."""
+
+    @abstractmethod
     def clear(self) -> None: ...
 
 
@@ -64,6 +69,13 @@ class InMemoryRepositoryStore(RepositoryStore):
             return sorted(
                 self._by_id.values(), key=lambda item: item.created_at, reverse=True
             )
+
+    def remove(self, repository_id: uuid.UUID) -> Repository | None:
+        with self._lock:
+            repository = self._by_id.pop(repository_id, None)
+            if repository is not None:
+                self._identity_to_id.pop(repository.identity_key, None)
+            return repository
 
     def clear(self) -> None:
         with self._lock:

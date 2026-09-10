@@ -105,7 +105,7 @@ import {
 
       <!-- ---------------- main split ---------------- -->
       <section class="split">
-        <co-card title="Recent jobs" subtitle="Most recent documentation runs" flush>
+        <co-card title="Recent documentation" subtitle="Most recent documentation runs" flush>
           <a card-actions class="btn btn--quiet btn--sm" routerLink="/jobs">
             <span>View all</span>
             <co-icon name="arrow-right" />

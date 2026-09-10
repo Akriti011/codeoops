@@ -11,7 +11,7 @@ export type IconName =
   | 'chevron-right' | 'plus' | 'upload' | 'git' | 'download' | 'refresh'
   | 'check' | 'x' | 'alert' | 'clock' | 'play' | 'arrow-right' | 'shield'
   | 'lock' | 'team' | 'bolt' | 'cpu' | 'sitemap' | 'server' | 'file'
-  | 'folder' | 'code' | 'external' | 'logout' | 'support' | 'sun';
+  | 'folder' | 'code' | 'external' | 'logout' | 'support' | 'sun' | 'trash';
 
 const PATHS: Record<IconName, string> = {
   dashboard: 'M3 3h6v7H3zM11 3h6v4h-6zM11 11h6v6h-6zM3 14h6v3H3z',
@@ -52,6 +52,7 @@ const PATHS: Record<IconName, string> = {
   logout: 'M8 17H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h3M13 13.5 16.5 10 13 6.5M16.5 10H8',
   support: 'M10 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM8 8a2 2 0 1 1 2.6 1.9c-.4.2-.6.5-.6.9v.7M10 14h.01',
   sun: 'M10 13.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM10 2v1.5M10 16.5V18M18 10h-1.5M3.5 10H2M15.7 4.3l-1 1M5.3 14.7l-1 1M15.7 15.7l-1-1M5.3 5.3l-1-1',
+  trash: 'M4 6h12M8 6V4h4v2M6 6l.8 10a1 1 0 0 0 1 1h4.4a1 1 0 0 0 1-1L14 6M9 9v5M11 9v5',
 };
 
 const FILLED = new Set<IconName>(['play', 'bolt']);

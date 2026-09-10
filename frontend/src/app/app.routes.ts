@@ -36,7 +36,7 @@ export const routes: Routes = [
       },
       {
         path: 'jobs',
-        title: 'Jobs · CodeOops',
+        title: 'Documentation · CodeOops',
         loadComponent: () =>
           import('./features/jobs/job-list.component').then((m) => m.JobListComponent),
       },
@@ -47,12 +47,11 @@ export const routes: Routes = [
           import('./features/jobs/job-progress.component').then((m) => m.JobProgressComponent),
       },
       {
+        // Kept so old links and the viewer's own routes resolve; the list
+        // itself lives at /jobs (shown in the sidebar as "Documentation").
         path: 'documentation',
-        title: 'Documentation · CodeOops',
-        loadComponent: () =>
-          import('./features/documentation/documentation-index.component').then(
-            (m) => m.DocumentationIndexComponent,
-          ),
+        pathMatch: 'full',
+        redirectTo: 'jobs',
       },
       {
         path: 'documentation/:id',

@@ -13,7 +13,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import mermaid from 'mermaid';
 
 import { CodeOopsApiService, repositoryLabel } from '../../shared/data/codeoops-api.service';
@@ -54,7 +54,7 @@ const PRIMARY_DOCUMENT = 'overview.md';
         [subtitle]="job()?.repository_url ?? null"
         [crumbs]="[
           { label: 'Dashboard', link: '/dashboard' },
-          { label: 'Documentation', link: '/documentation' },
+          { label: 'Documentation', link: '/jobs' },
           { label: 'Overview' }
         ]"
       >
@@ -78,6 +78,17 @@ const PRIMARY_DOCUMENT = 'overview.md';
             <button type="button" class="btn btn--primary btn--sm" (click)="printPdf()">
               <co-icon name="file" />
               <span>Save as PDF</span>
+            </button>
+          }
+          @if (job()?.repository_id) {
+            <button
+              type="button"
+              class="btn btn--ghost btn--sm btn--danger"
+              [disabled]="deleting()"
+              (click)="deleteRepo()"
+            >
+              <co-icon [name]="deleting() ? 'clock' : 'trash'" />
+              <span>{{ deleting() ? 'Deleting…' : 'Delete' }}</span>
             </button>
           }
         </div>
@@ -262,6 +273,7 @@ const PRIMARY_DOCUMENT = 'overview.md';
 export class DocumentationViewerComponent {
   private readonly api = inject(CodeOopsApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -278,6 +290,7 @@ export class DocumentationViewerComponent {
   protected readonly error = signal<string | null>(null);
   protected readonly notGenerated = signal(false);
   protected readonly copied = signal(false);
+  protected readonly deleting = signal(false);
 
   private readonly rendered = computed(() => renderMarkdown(this.markdown()));
 
@@ -453,5 +466,36 @@ export class DocumentationViewerComponent {
     setTimeout(restore, 60_000);
 
     window.print();
+  }
+
+  /**
+   * Delete the repository this overview belongs to — its record, every
+   * documentation run for it, the stored overview, and (for an uploaded ZIP)
+   * the extracted archive on the backend. No undo, so it is gated behind a
+   * confirm; on success we leave for the Documentation list.
+   */
+  protected deleteRepo(): void {
+    const repoId = this.job()?.repository_id;
+    if (!repoId || this.deleting()) return;
+
+    const label = this.heading();
+    if (!confirm(`Delete "${label}" and its generated documentation?\n\nThis cannot be undone.`)) {
+      return;
+    }
+
+    this.deleting.set(true);
+    this.api
+      .deleteRepository(repoId)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.deleting.set(false);
+          void this.router.navigate(['/jobs']);
+        },
+        error: (err: unknown) => {
+          this.deleting.set(false);
+          this.error.set(httpErrorMessage(err, `Could not delete "${label}".`));
+        },
+      });
   }
 }

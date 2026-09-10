@@ -121,6 +121,20 @@ class CodeWikiClient:
             commit_id=body.get("commit_id"),
         )
 
+    async def delete_job(self, codewiki_job_id: str) -> bool:
+        """Ask CodeWiki to forget one job from its own registry.
+
+        Best-effort: the CodeOops-side deletion has already happened by the
+        time this is called, so an unreachable engine or an error here must
+        not fail the request — it only leaves a cosmetic stale row in
+        CodeWiki's own console. Returns True if CodeWiki removed an entry.
+        """
+        try:
+            response = await self._http.delete(f"/api/job/{codewiki_job_id}")
+        except httpx.HTTPError:
+            return False
+        return response.status_code == 200
+
 
 def _parse_dt(value: str | None) -> datetime | None:
     if not value:

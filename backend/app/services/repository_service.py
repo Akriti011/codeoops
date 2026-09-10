@@ -103,3 +103,19 @@ class RepositoryService:
 
     def list(self) -> list[Repository]:
         return self._store.list()
+
+    def delete(self, repository_id: uuid.UUID) -> Repository:
+        """Remove one repository record.
+
+        Only the record itself — the caller is responsible for purging any
+        documentation jobs, artifacts and on-disk workspace that belonged to
+        it first (this service deliberately knows nothing about those). Raises
+        :class:`RepositoryNotFoundError` if there is no such repository.
+        """
+        removed = self._store.remove(repository_id)
+        if removed is None:
+            raise RepositoryNotFoundError(
+                "No repository with that id.",
+                details={"repository_id": str(repository_id)},
+            )
+        return removed

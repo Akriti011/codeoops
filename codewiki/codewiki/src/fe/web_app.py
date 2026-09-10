@@ -84,6 +84,12 @@ async def get_job_status(job_id: str):
     return await web_routes.get_job_status(job_id)
 
 
+@app.delete("/api/job/{job_id}")
+async def delete_job(job_id: str):
+    """Forget one job — called by CodeOops when its repository is deleted."""
+    return await web_routes.delete_job(job_id)
+
+
 @app.get("/docs/{job_id}")
 async def view_docs(job_id: str):
     """View generated documentation."""

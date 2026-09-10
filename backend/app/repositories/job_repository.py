@@ -39,6 +39,11 @@ class JobStore(ABC):
     def list_all(self) -> list[DocumentationJob]: ...
 
     @abstractmethod
+    def remove(self, job_id: uuid.UUID) -> DocumentationJob | None:
+        """Delete one job. Returns the removed record, or ``None`` if there was
+        no such id. Idempotent."""
+
+    @abstractmethod
     def clear(self) -> None: ...
 
 
@@ -75,6 +80,10 @@ class InMemoryJobStore(JobStore):
     def list_all(self) -> list[DocumentationJob]:
         with self._lock:
             return sorted(self._by_id.values(), key=lambda job: job.created_at, reverse=True)
+
+    def remove(self, job_id: uuid.UUID) -> DocumentationJob | None:
+        with self._lock:
+            return self._by_id.pop(job_id, None)
 
     def clear(self) -> None:
         with self._lock:

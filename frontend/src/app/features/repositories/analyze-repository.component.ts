@@ -132,7 +132,7 @@ const REPO_PATTERN =
       <!-- ---------------- recent submissions ---------------- -->
       <co-card title="Recently submitted" subtitle="From this backend" flush>
         <a card-actions class="btn btn--quiet btn--sm" routerLink="/jobs">
-          <span>All jobs</span>
+          <span>All documentation</span>
           <co-icon name="arrow-right" />
         </a>
 

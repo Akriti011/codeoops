@@ -76,6 +76,51 @@ _MERMAID_BLOCK_RE = re.compile(r"```mermaid\n(.*?)```", re.DOTALL)
 _MERMAID_EDGE_RE = re.compile(r"^\s*([A-Za-z0-9_]+)(?:\[[^\]]*\])?\s*-->\s*([A-Za-z0-9_]+)", re.MULTILINE)
 _MERMAID_LABELED_NODE_RE = re.compile(r"\b([A-Za-z0-9_]+)\[([^\]]*)\]")
 
+# A rectangle label ``id[...]`` (not ``id[[...]]`` / ``id[(...)]`` / already
+# quoted) — captured so risky characters inside it can be neutralised.
+_MERMAID_RECT_LABEL_RE = re.compile(r"([A-Za-z0-9_]+)\[(?!\[|\()\s*(?!\")([^\]\"]*?)\s*\]")
+# An edge label ``-->|...|`` / ``-.->|...|`` / ``==>|...|`` that isn't quoted.
+_MERMAID_EDGE_LABEL_RE = re.compile(r"(--+>|-\.-+>|==+>)\|\s*(?!\")([^|]*?)\s*\|")
+# Characters that make the Mermaid flowchart parser choke inside a bracket
+# label: the shape-delimiters and a few structural tokens.
+_MERMAID_LABEL_BAD_CHARS = re.compile(r"[()\[\]{}<>#|;]")
+
+
+def _sanitize_mermaid_labels(markdown: str) -> str:
+    """Quote Mermaid node/edge labels that contain characters the flowchart
+    parser treats as syntax.
+
+    Seen directly on a real repo: the model wrote
+    ``I[Database (Not explicitly identified in the repository)]`` — the ``(``
+    inside ``[...]`` starts a shape token as far as Mermaid is concerned, so
+    the whole diagram fails to parse and renders as a tiny error box (no
+    nodes, no edges). Wrapping such a label in double quotes
+    (``I["Database (...)"]``) is valid Mermaid and keeps the label text
+    intact. Non-destructive: labels without risky characters are left byte
+    for byte as they were.
+    """
+
+    def _fix_block(match: "re.Match[str]") -> str:
+        body = match.group(1)
+
+        def _rect(m: "re.Match[str]") -> str:
+            node_id, label = m.group(1), m.group(2)
+            if not _MERMAID_LABEL_BAD_CHARS.search(label):
+                return m.group(0)
+            return f'{node_id}["{label.replace(chr(34), chr(39))}"]'
+
+        def _edge(m: "re.Match[str]") -> str:
+            arrow, label = m.group(1), m.group(2)
+            if not label or not _MERMAID_LABEL_BAD_CHARS.search(label):
+                return m.group(0)
+            return f'{arrow}|"{label.replace(chr(34), chr(39))}"|'
+
+        body = _MERMAID_RECT_LABEL_RE.sub(_rect, body)
+        body = _MERMAID_EDGE_LABEL_RE.sub(_edge, body)
+        return f"```mermaid\n{body}```"
+
+    return _MERMAID_BLOCK_RE.sub(_fix_block, markdown)
+
 
 def _strip_degenerate_mermaid_diagrams(markdown: str) -> str:
     """Remove a Mermaid block with no real edges, or that redefines the same
@@ -494,6 +539,7 @@ class DocumentationGenerator:
         # stop it also reaching for this placeholder-image habit; strip it
         # deterministically rather than rely on the prompt alone.
         overview_content = overview_mapreduce._strip_image_links(overview_content)
+        overview_content = _sanitize_mermaid_labels(overview_content)
         overview_content = _strip_degenerate_mermaid_diagrams(overview_content)
 
         if "```mermaid" not in overview_content:

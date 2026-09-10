@@ -59,7 +59,7 @@ type StageState = 'done' | 'current' | 'pending' | 'failed';
         [subtitle]="job()?.repository_url ?? null"
         [crumbs]="[
           { label: 'Dashboard', link: '/dashboard' },
-          { label: 'Jobs', link: '/jobs' },
+          { label: 'Documentation', link: '/jobs' },
           { label: 'Progress' }
         ]"
       >
@@ -84,7 +84,7 @@ type StageState = 'done' | 'current' | 'pending' | 'failed';
               <p class="alert__title">Could not load this job</p>
               <p class="alert__text">{{ message }}</p>
             </div>
-            <a class="btn btn--ghost btn--sm" routerLink="/jobs">Back to jobs</a>
+            <a class="btn btn--ghost btn--sm" routerLink="/jobs">Back to documentation</a>
           </div>
         </co-card>
       } @else if (!job()) {
