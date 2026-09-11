@@ -1,13 +1,3 @@
-# CodeOops — full stack. See .env.example for every tunable value (copy to
-# .env before running). Ollama is deliberately NOT a service here: it stays
-# native on the host (this stack was tuned against a real Ollama.app
-# instance on an 8GB Apple Silicon Mac — containerizing it would mean
-# shipping a multi-GB model inside an image and losing Metal acceleration
-# for no benefit). CodeWiki reaches it via host.docker.internal.
-#
-# No database service: CodeOops has none (in-memory repository/job stores
-# only, confirmed from the actual code, not assumed).
-
 services:
   codewiki:
     build: ./codewiki
