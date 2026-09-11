@@ -83,6 +83,7 @@ class JobRunner:
         try:
             await self._run(job, repository)
         except CodeWikiError as exc:
+            logger.warning("Job %s failed (%s): %s", job.id, exc.code, exc.message)
             self._fail(job, exc.code, exc.message)
         except Exception as exc:  # noqa: BLE001 - last-resort containment
             logger.exception("Unhandled error running job %s", job.id)

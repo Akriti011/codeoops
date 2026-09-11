@@ -7,8 +7,11 @@ endpoint (codewiki/src/fe/web_app.py, codewiki/src/fe/models.py).
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 import httpx
 
@@ -16,6 +19,37 @@ from app.services.codewiki.errors import (
     CodeWikiSubmitRejectedError,
     CodeWikiUnreachableError,
 )
+
+logger = logging.getLogger(__name__)
+
+# A job's HTTP calls to CodeWiki (a submit, then minutes of status polling)
+# are numerous enough that one transient connection blip must not sink the
+# whole run. Retried only for network-level failures (httpx.HTTPError) —
+# never for a 4xx/5xx response, which is CodeWiki actually answering.
+_MAX_ATTEMPTS = 3
+_RETRY_DELAY_SECONDS = 1.0
+
+
+async def _with_retries(
+    description: str, call: Callable[[], Awaitable[httpx.Response]]
+) -> httpx.Response:
+    last_exc: httpx.HTTPError | None = None
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            return await call()
+        except httpx.HTTPError as exc:
+            last_exc = exc
+            if attempt < _MAX_ATTEMPTS:
+                logger.warning(
+                    "CodeWiki call failed (%s), attempt %d/%d: %s",
+                    description,
+                    attempt,
+                    _MAX_ATTEMPTS,
+                    exc,
+                )
+                await asyncio.sleep(_RETRY_DELAY_SECONDS * attempt)
+    assert last_exc is not None
+    raise last_exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,8 +85,11 @@ class CodeWikiClient:
     async def submit(self, repository_url: str, commit_id: str | None = None) -> None:
         """POST the submission form. CodeWiki replies with HTML, not a job id."""
         try:
-            response = await self._http.post(
-                "/", data={"repo_url": repository_url, "commit_id": commit_id or ""}
+            response = await _with_retries(
+                "submit",
+                lambda: self._http.post(
+                    "/", data={"repo_url": repository_url, "commit_id": commit_id or ""}
+                ),
             )
         except httpx.HTTPError as exc:
             raise CodeWikiUnreachableError(
@@ -76,8 +113,11 @@ class CodeWikiClient:
         GitHub path.
         """
         try:
-            response = await self._http.post(
-                "/api/local-job", json={"job_id": codewiki_job_id, "local_path": local_path}
+            response = await _with_retries(
+                "submit_local",
+                lambda: self._http.post(
+                    "/api/local-job", json={"job_id": codewiki_job_id, "local_path": local_path}
+                ),
             )
         except httpx.HTTPError as exc:
             raise CodeWikiUnreachableError(
@@ -93,7 +133,9 @@ class CodeWikiClient:
     async def get_job(self, codewiki_job_id: str) -> CodeWikiJobStatus | None:
         """Return CodeWiki's own job record, or ``None`` if it knows no such id."""
         try:
-            response = await self._http.get(f"/api/job/{codewiki_job_id}")
+            response = await _with_retries(
+                "get_job", lambda: self._http.get(f"/api/job/{codewiki_job_id}")
+            )
         except httpx.HTTPError as exc:
             raise CodeWikiUnreachableError(
                 "Could not reach CodeWiki to check job status.",
@@ -137,9 +179,19 @@ class CodeWikiClient:
 
 
 def _parse_dt(value: str | None) -> datetime | None:
+    """Parse a CodeWiki timestamp, treating a naive one as UTC.
+
+    CodeWiki stamps its own job records with ``datetime.now()`` (naive) on a
+    container clock that runs UTC. Left naive, this datetime later serializes
+    to JSON without a ``Z``/offset, and the frontend's `new Date()` then reads
+    it as local time — a multi-hour skew that broke duration display.
+    """
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(value)
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
