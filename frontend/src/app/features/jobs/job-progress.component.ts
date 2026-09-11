@@ -30,7 +30,7 @@ const POLL_INTERVAL_MS = 3000;
 /** The pipeline stages, in the order the backend moves through them. */
 const STAGES: ReadonlyArray<{ status: string; label: string; description: string }> = [
   { status: 'QUEUED', label: 'Queued', description: 'Waiting for a worker to pick the job up.' },
-  { status: 'SUBMITTING', label: 'Submitting to CodeWiki', description: 'Handing the repository to the documentation engine.' },
+  { status: 'SUBMITTING', label: 'Submitting for analysis', description: 'Handing the repository to the documentation engine.' },
   { status: 'GENERATING', label: 'Generating documentation', description: 'Parsing files, clustering modules and writing summaries.' },
   { status: 'RETRIEVING', label: 'Retrieving artifacts', description: 'Fetching the generated files and verifying they belong to this repository.' },
   { status: 'COMPLETED', label: 'Completed', description: 'The overview is available.' },
@@ -58,8 +58,8 @@ type StageState = 'done' | 'current' | 'pending' | 'failed';
         [title]="heading()"
         [subtitle]="job()?.repository_url ?? null"
         [crumbs]="[
-          { label: 'Dashboard', link: '/dashboard' },
-          { label: 'Documentation', link: '/jobs' },
+          { label: 'Home', link: '/dashboard' },
+          { label: 'Documents', link: '/jobs' },
           { label: 'Progress' }
         ]"
       >

@@ -54,8 +54,8 @@ const PRIMARY_DOCUMENT = 'overview.md';
         [title]="heading()"
         [subtitle]="job()?.repository_url ?? null"
         [crumbs]="[
-          { label: 'Dashboard', link: '/dashboard' },
-          { label: 'Documentation', link: '/jobs' },
+          { label: 'Home', link: '/dashboard' },
+          { label: 'Documents', link: '/jobs' },
           { label: 'Overview' }
         ]"
       >

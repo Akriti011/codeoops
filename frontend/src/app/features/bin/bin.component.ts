@@ -27,7 +27,7 @@ import { SkeletonComponent } from '../../shared/ui/skeleton.component';
       <co-page-header
         title="Bin"
         subtitle="Deleted repositories. Restore brings back the documentation and everything generated for it."
-        [crumbs]="[{ label: 'Dashboard', link: '/dashboard' }, { label: 'Bin' }]"
+        [crumbs]="[{ label: 'Home', link: '/dashboard' }, { label: 'Bin' }]"
       >
         <div page-actions class="row">
           <button

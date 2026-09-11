@@ -22,7 +22,7 @@ export const routes: Routes = [
     children: [
       {
         path: 'dashboard',
-        title: 'Dashboard · CodeOops',
+        title: 'Home · CodeOops',
         loadComponent: () =>
           import('./features/dashboard/dashboard.component').then((m) => m.DashboardComponent),
       },
@@ -36,7 +36,7 @@ export const routes: Routes = [
       },
       {
         path: 'jobs',
-        title: 'Documentation · CodeOops',
+        title: 'Documents · CodeOops',
         loadComponent: () =>
           import('./features/jobs/job-list.component').then((m) => m.JobListComponent),
       },
@@ -48,7 +48,7 @@ export const routes: Routes = [
       },
       {
         // Kept so old links and the viewer's own routes resolve; the list
-        // itself lives at /jobs (shown in the sidebar as "Documentation").
+        // itself lives at /jobs (shown in the sidebar as "Documents").
         path: 'documentation',
         pathMatch: 'full',
         redirectTo: 'jobs',

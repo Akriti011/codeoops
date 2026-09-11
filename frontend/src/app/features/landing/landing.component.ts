@@ -27,13 +27,13 @@ interface Capability {
     <div class="landing">
       <header class="nav">
         <div class="nav__inner">
-          <co-logo size="md" tagline="Developer platform" />
+          <co-logo size="md" tagline="Document generator" />
           <nav class="nav__links" aria-label="Primary">
             <a href="#capabilities">Capabilities</a>
             <a href="#pipeline">How it works</a>
           </nav>
           <a class="btn btn--primary btn--sm" routerLink="/dashboard">
-            <span>Open console</span>
+            <span>Open app</span>
             <co-icon name="arrow-right" />
           </a>
         </div>
@@ -41,10 +41,10 @@ interface Capability {
 
       <!-- ---------------- hero ---------------- -->
       <section class="hero">
-        <div class="hero__inner">
+        <div class="hero__inner animate-in">
           <p class="eyebrow">
             <span class="eyebrow__dot" aria-hidden="true"></span>
-            Powered by the CodeWiki engine
+            Documentation, generated — not written
           </p>
 
           <h1 class="t-display hero__title">
@@ -54,25 +54,25 @@ interface Capability {
 
           <p class="hero__lede">
             Point CodeOops at a repository. It parses the source, resolves dependencies,
-            clusters modules and returns a written overview — produced by the engine,
+            clusters modules and returns a written document — produced from the code,
             never guessed at.
           </p>
 
           <div class="hero__actions">
             <a class="btn btn--primary btn--lg" routerLink="/analyze">
               <co-icon name="play" />
-              <span>Analyze a repository</span>
+              <span>Generate a document</span>
             </a>
             <a class="btn btn--ghost btn--lg" routerLink="/dashboard">
-              <co-icon name="dashboard" />
-              <span>Go to dashboard</span>
+              <co-icon name="documentation" />
+              <span>View your documents</span>
             </a>
           </div>
 
           <ul class="hero__notes">
             <li><co-icon name="lock" /> <span>Runs entirely inside your network</span></li>
             <li><co-icon name="cpu" /> <span>Open-weight models on your own runtime</span></li>
-            <li><co-icon name="shield" /> <span>Artifacts verified against the source repository</span></li>
+            <li><co-icon name="shield" /> <span>Documents verified against the source repository</span></li>
           </ul>
         </div>
       </section>
@@ -87,7 +87,7 @@ interface Capability {
 
           <div class="cards">
             @for (item of capabilities; track item.title) {
-              <article class="card">
+              <article class="card animate-in">
                 <co-icon-tile [name]="item.icon" [tone]="item.tone" size="lg" />
                 <h3 class="card__title">{{ item.title }}</h3>
                 <p class="card__text">{{ item.text }}</p>
@@ -105,7 +105,7 @@ interface Capability {
 
           <ol class="flow">
             @for (step of pipeline; track step.title; let i = $index) {
-              <li class="flow__item">
+              <li class="flow__item animate-in">
                 <span class="flow__index">{{ i + 1 }}</span>
                 <h3 class="flow__title">{{ step.title }}</h3>
                 <p class="flow__text">{{ step.text }}</p>
@@ -130,7 +130,7 @@ interface Capability {
       <footer class="foot">
         <div class="foot__inner">
           <co-logo variant="dark" size="sm" />
-          <p class="foot__text">Internal developer platform · CodeWiki documentation engine</p>
+          <p class="foot__text">Internal developer platform · Automated document generator</p>
         </div>
       </footer>
     </div>
@@ -307,13 +307,13 @@ export class LandingComponent {
       icon: 'documentation',
       tone: 'blue',
       title: 'Module-level summaries',
-      text: 'Every module is summarised on its own evidence, then reduced into one coherent overview.',
+      text: 'Every module is summarised on its own evidence, then reduced into one coherent document.',
     },
     {
       icon: 'shield',
       tone: 'green',
-      title: 'Verified artifacts',
-      text: "Each document is checked against the engine's own metadata before it is shown, so no stale output can appear.",
+      title: 'Verified documents',
+      text: 'Each document is checked against the source metadata before it is shown, so no stale output can appear.',
     },
     {
       icon: 'cpu',
@@ -321,24 +321,12 @@ export class LandingComponent {
       title: 'Your own model runtime',
       text: 'Open-weight models served inside your network. No repository content leaves the environment.',
     },
-    {
-      icon: 'jobs',
-      tone: 'cyan',
-      title: 'Observable pipeline',
-      text: 'Live status for every stage, with module counts and the failure reason when something goes wrong.',
-    },
-    {
-      icon: 'code',
-      tone: 'amber',
-      title: 'Polyglot repositories',
-      text: 'Analysis follows the languages the engine supports across the repository you submit.',
-    },
   ];
 
   protected readonly pipeline = [
     { title: 'Submit', text: 'Provide a Git URL and an optional branch. CodeOops creates a job.' },
-    { title: 'Analyse', text: 'CodeWiki parses the repository and clusters it into modules.' },
-    { title: 'Generate', text: 'Modules are summarised, then reduced into a single overview.' },
-    { title: 'Review', text: 'The overview is bound to the job and rendered in the console.' },
+    { title: 'Analyse', text: 'The repository is parsed and clustered into modules.' },
+    { title: 'Generate', text: 'Modules are summarised, then reduced into a single document.' },
+    { title: 'Review', text: 'The document is bound to the job and rendered in the app.' },
   ];
 }

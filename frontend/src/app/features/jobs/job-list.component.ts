@@ -36,9 +36,9 @@ type Filter = 'all' | 'running' | 'completed' | 'failed';
   template: `
     <div class="page stack-lg">
       <co-page-header
-        title="Documentation"
-        subtitle="Every documentation run submitted to this backend, and its generated overview."
-        [crumbs]="[{ label: 'Dashboard', link: '/dashboard' }, { label: 'Documentation' }]"
+        title="Documents"
+        subtitle="Every document generated from this backend, and the run that produced it."
+        [crumbs]="[{ label: 'Home', link: '/dashboard' }, { label: 'Documents' }]"
       >
         <div page-actions class="row">
           <button type="button" class="btn btn--ghost btn--sm" (click)="reload()" [disabled]="loading()">
@@ -47,7 +47,7 @@ type Filter = 'all' | 'running' | 'completed' | 'failed';
           </button>
           <a class="btn btn--primary btn--sm" routerLink="/analyze">
             <co-icon name="plus" />
-            <span>New documentation</span>
+            <span>Generate a document</span>
           </a>
         </div>
       </co-page-header>

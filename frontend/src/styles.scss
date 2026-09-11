@@ -427,6 +427,43 @@ a { color: inherit; text-decoration: none; }
   }
 }
 
+/* ==========================================================================
+   motion — a few deliberate entrances, not decoration everywhere.
+   Respects prefers-reduced-motion: elements are simply visible with none
+   of this applied when the user has asked for less motion.
+   ========================================================================== */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes fade-in-up {
+    from { opacity: 0; translate: 0 10px; }
+    to   { opacity: 1; translate: 0 0; }
+  }
+
+  @keyframes soft-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.45; }
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  .animate-in {
+    animation: fade-in-up 420ms var(--ease) both;
+  }
+
+  /* Stagger a list of .animate-in siblings without JS. */
+  .animate-in:nth-child(1) { animation-delay: 0ms; }
+  .animate-in:nth-child(2) { animation-delay: 40ms; }
+  .animate-in:nth-child(3) { animation-delay: 80ms; }
+  .animate-in:nth-child(4) { animation-delay: 120ms; }
+  .animate-in:nth-child(5) { animation-delay: 160ms; }
+  .animate-in:nth-child(6) { animation-delay: 200ms; }
+  .animate-in:nth-child(n+7) { animation-delay: 240ms; }
+
+  .pulse-live { animation: soft-pulse 1.8s ease-in-out infinite; }
+  .spin { animation: spin 900ms linear infinite; }
+}
+
 /* scrollbars */
 * { scrollbar-width: thin; scrollbar-color: var(--grey-300) transparent; }
 *::-webkit-scrollbar { width: 10px; height: 10px; }

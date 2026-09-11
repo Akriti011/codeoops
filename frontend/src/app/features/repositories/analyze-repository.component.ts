@@ -46,8 +46,8 @@ const REPO_PATTERN =
     <div class="page stack-lg">
       <co-page-header
         title="Analyze repository"
-        subtitle="Point CodeOops at a repository. It runs CodeWiki and returns the generated overview."
-        [crumbs]="[{ label: 'Dashboard', link: '/dashboard' }, { label: 'Analyze repository' }]"
+        subtitle="Point CodeOops at a repository. It analyses the code and returns the generated document."
+        [crumbs]="[{ label: 'Home', link: '/dashboard' }, { label: 'Analyze repository' }]"
       />
 
       <div class="split">
@@ -207,8 +207,8 @@ const REPO_PATTERN =
           <p class="note">
             <co-icon name="shield" class="note__icon" />
             <span>
-              The overview is produced by CodeWiki and bound to this job. CodeOops does not
-              summarise, rewrite or substitute the engine's output.
+              The document is produced from the analysed repository and bound to this job.
+              CodeOops does not summarise, rewrite or substitute the engine's output.
             </span>
           </p>
         </co-card>
@@ -374,7 +374,7 @@ export class AnalyzeRepositoryComponent {
       text: 'A Git URL is validated, or a ZIP is extracted, and a documentation job is queued.',
     },
     {
-      title: 'CodeWiki analyses the repository',
+      title: 'The repository is analysed',
       text: 'Files are parsed and the dependency + call graph is built (no LLM).',
     },
     {

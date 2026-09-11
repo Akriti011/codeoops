@@ -62,13 +62,6 @@ interface NavItem {
         </nav>
 
         <div class="rail__foot">
-          <div class="rail__engine">
-            <co-icon class="rail__icon" name="cpu" />
-            <span class="rail__label">
-              <span class="rail__engine-title">CodeWiki engine</span>
-              <span class="rail__engine-sub">Local model runtime</span>
-            </span>
-          </div>
           <button
             type="button"
             class="rail__collapse"
@@ -105,7 +98,7 @@ interface NavItem {
 
           <a class="btn btn--primary btn--sm topbar__cta" routerLink="/analyze">
             <co-icon name="plus" />
-            <span>Analyze repository</span>
+            <span>Generate</span>
           </a>
         </header>
 
@@ -185,8 +178,7 @@ interface NavItem {
     }
 
     .rail__item,
-    .rail__collapse,
-    .rail__engine {
+    .rail__collapse {
       display: flex;
       align-items: center;
       gap: var(--s-3);
@@ -222,16 +214,9 @@ interface NavItem {
       gap: 2px;
     }
 
-    .rail__engine { cursor: default; align-items: flex-start; }
-    .rail__engine .rail__icon { margin-top: 0.15rem; color: var(--red-400); }
-    .rail__engine .rail__label { display: grid; line-height: 1.3; }
-    .rail__engine-title { color: #fff; font-size: var(--t-sm); font-weight: 600; }
-    .rail__engine-sub { color: #5C6478; font-size: var(--t-xs); }
-
     .shell--collapsed .rail__label { display: none; }
     .shell--collapsed .rail__item,
-    .shell--collapsed .rail__collapse,
-    .shell--collapsed .rail__engine { justify-content: center; padding-inline: 0; }
+    .shell--collapsed .rail__collapse { justify-content: center; padding-inline: 0; }
     .shell--collapsed .rail__brand { justify-content: center; }
 
     /* ---------------- main column ---------------- */
@@ -315,11 +300,11 @@ interface NavItem {
 })
 export class AppShellComponent {
   protected readonly nav: readonly NavItem[] = [
-    { label: 'Dashboard', icon: 'dashboard', link: '/dashboard' },
-    { label: 'Analyze repository', icon: 'repositories', link: '/analyze' },
+    { label: 'Home', icon: 'dashboard', link: '/dashboard' },
+    { label: 'Generate', icon: 'repositories', link: '/analyze' },
     // One entry: every generation run and its overview live under /jobs. The
     // separate "Documentation" index was removed — this is that section now.
-    { label: 'Documentation', icon: 'documentation', link: '/jobs' },
+    { label: 'Documents', icon: 'documentation', link: '/jobs' },
     { label: 'Bin', icon: 'trash', link: '/bin' },
   ];
 
