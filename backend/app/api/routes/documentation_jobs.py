@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, HTTPException, Response, status
 
 from app.api.deps import DocumentationJobServiceDep, RepositoryServiceDep, SettingsDep
 from app.core.errors import DocumentationProviderNotConfiguredError
@@ -139,6 +139,47 @@ async def get_job_overview(job_id: uuid.UUID, jobs: DocumentationJobServiceDep) 
             "X-CodeOops-Job-Id": str(job_id),
             "X-CodeOops-Engine": "codewiki",
         },
+    )
+
+
+_DOCUMENT_MEDIA_TYPES = {
+    "overview.json": "application/json",
+    "hld.md": "text/markdown",
+    "lld.md": "text/markdown",
+    "hld.validation.json": "application/json",
+    "lld.validation.json": "application/json",
+}
+
+
+@router.get(
+    "/jobs/{job_id}/documents",
+    summary="List downstream documents (overview.json / hld.md / lld.md / validation reports)",
+    responses={404: {"model": ErrorResponse, "description": "Unknown job"}},
+)
+async def list_job_documents(
+    job_id: uuid.UUID, jobs: DocumentationJobServiceDep
+) -> dict[str, list[str]]:
+    return {"documents": jobs.list_documents(job_id)}
+
+
+@router.get(
+    "/jobs/{job_id}/documents/{name}",
+    summary="Fetch one downstream document by name",
+    responses={
+        404: {"model": ErrorResponse, "description": "Unknown job"},
+        409: {"model": ErrorResponse, "description": "This job has no such document"},
+    },
+)
+async def get_job_document(
+    job_id: uuid.UUID, name: str, jobs: DocumentationJobServiceDep
+) -> Response:
+    if name not in _DOCUMENT_MEDIA_TYPES:
+        raise HTTPException(status_code=404, detail=f"Unknown document name: {name}")
+    content = jobs.get_document_bytes(job_id, name)
+    return Response(
+        content=content,
+        media_type=_DOCUMENT_MEDIA_TYPES[name],
+        headers={"X-CodeOops-Job-Id": str(job_id), "X-CodeOops-Engine": "codewiki"},
     )
 
 

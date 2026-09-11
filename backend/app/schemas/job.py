@@ -80,6 +80,7 @@ class JobResponse(BaseModel):
     overview_available: bool
     served_from_codewiki_cache: bool
     provider: str
+    documents: list[str] = []
     codewiki: CodeWikiJobInfoResponse | None = None
 
 

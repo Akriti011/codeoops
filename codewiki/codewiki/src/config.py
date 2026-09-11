@@ -92,6 +92,79 @@ def is_cli_context() -> bool:
 MAIN_MODEL = os.getenv('MAIN_MODEL', 'claude-sonnet-4')
 FALLBACK_MODEL_1 = os.getenv('FALLBACK_MODEL_1', 'glm-4p5')
 CLUSTER_MODEL = os.getenv('CLUSTER_MODEL', MAIN_MODEL)
+
+
+# --------------------------------------------------------------------------
+# Per-task model configuration (model-agnostic pipeline).
+#
+# Each generation stage — overview, HLD, LLD — resolves its own model and
+# decoding parameters here, so a GPU laptop can run a 32B model for HLD/LLD
+# while a 7B model still does the overview, with NO code change: only these
+# env vars move. Every value falls back to the overview value, which itself
+# falls back to MAIN_MODEL / OLLAMA_NUM_CTX / OVERVIEW_MAX_OUTPUT_TOKENS, so
+# an existing 7B .env with none of these set behaves exactly as before.
+#
+#   {STAGE}_MODEL         model name (as the LLM endpoint knows it)
+#   {STAGE}_NUM_CTX       context window to request (Ollama num_ctx)
+#   {STAGE}_MAX_TOKENS    max output tokens
+#   {STAGE}_TEMPERATURE   sampling temperature
+#   {STAGE}_LLM_BASE_URL  per-stage endpoint override (default LLM_BASE_URL)
+#   {STAGE}_LLM_API_KEY   per-stage key override      (default LLM_API_KEY)
+# --------------------------------------------------------------------------
+
+_OVERVIEW_NUM_CTX_DEFAULT = int(os.getenv("OLLAMA_NUM_CTX", "8192"))
+_OVERVIEW_MAX_TOKENS_DEFAULT = int(os.getenv("OVERVIEW_MAX_OUTPUT_TOKENS", "3000"))
+
+# HLD/LLD generation as CodeOops pipeline stages. Default ON whenever the
+# single-overview production mode is on; a deployment that only wants the
+# overview sets these to "false".
+HLD_ENABLED = os.getenv("HLD_ENABLED", "true" if OVERVIEW_ONLY else "false").strip().lower() == "true"
+LLD_ENABLED = os.getenv("LLD_ENABLED", "true" if OVERVIEW_ONLY else "false").strip().lower() == "true"
+
+# How many of the most-depended-on components' source files the LLD stage is
+# allowed to pull in as code-level context (0 = IR + HLD only).
+LLD_CODE_CONTEXT_FILES = int(os.getenv("LLD_CODE_CONTEXT_FILES", "12"))
+LLD_CODE_CONTEXT_CHARS = int(os.getenv("LLD_CODE_CONTEXT_CHARS", "1800"))
+
+# Lightweight grounding check of each generated doc against the structured
+# overview IR (no LLM). On by default; set DOC_VALIDATOR_ENABLED=false to skip.
+DOC_VALIDATOR_ENABLED = os.getenv("DOC_VALIDATOR_ENABLED", "true").strip().lower() == "true"
+
+
+@dataclass(frozen=True)
+class TaskModel:
+    """Resolved model + decoding parameters for one generation stage."""
+
+    stage: str
+    model: str
+    num_ctx: int
+    max_tokens: int
+    temperature: float
+    base_url: str
+    api_key: str
+
+
+def _task_model(stage: str, *, temperature_default: float) -> TaskModel:
+    up = stage.upper()
+    return TaskModel(
+        stage=stage,
+        model=os.getenv(f"{up}_MODEL", "") or os.getenv("OVERVIEW_MODEL", "") or MAIN_MODEL,
+        num_ctx=int(os.getenv(f"{up}_NUM_CTX", "") or _OVERVIEW_NUM_CTX_DEFAULT),
+        max_tokens=int(os.getenv(f"{up}_MAX_TOKENS", "") or _OVERVIEW_MAX_TOKENS_DEFAULT),
+        temperature=float(os.getenv(f"{up}_TEMPERATURE", "") or temperature_default),
+        base_url=os.getenv(f"{up}_LLM_BASE_URL", "") or LLM_BASE_URL,
+        api_key=os.getenv(f"{up}_LLM_API_KEY", "") or LLM_API_KEY,
+    )
+
+
+def task_model(stage: str) -> TaskModel:
+    """Model config for ``stage`` in {"overview", "hld", "lld"}.
+
+    Unknown stages resolve like "overview" so callers can add a stage without
+    touching this function.
+    """
+    defaults = {"overview": 0.2, "hld": 0.2, "lld": 0.1}
+    return _task_model(stage, temperature_default=defaults.get(stage, 0.2))
 LLM_BASE_URL = os.getenv('LLM_BASE_URL', 'http://0.0.0.0:4000/')
 LLM_API_KEY = os.getenv('LLM_API_KEY', 'sk-1234')
 

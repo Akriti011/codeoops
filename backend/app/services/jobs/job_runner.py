@@ -26,7 +26,12 @@ from app.models.enums import JobStatus, RepositorySource
 from app.models.job import CodeWikiJobInfo, DocumentationJob
 from app.models.repository import Repository
 from app.repositories.job_repository import JobStore
-from app.services.codewiki.artifacts import read_metadata, read_overview
+from app.services.codewiki.artifacts import (
+    DOWNSTREAM_DOCUMENTS,
+    read_metadata,
+    read_optional_document,
+    read_overview,
+)
 from app.services.codewiki.binding import verify_binding
 from app.services.codewiki.client import CodeWikiClient, CodeWikiJobStatus
 from app.services.codewiki.errors import (
@@ -133,6 +138,17 @@ class JobRunner:
 
         self._artifacts.save_overview(job.id, overview_text.encode("utf-8"))
 
+        # Copy whatever downstream artifacts the pipeline produced (structured
+        # IR, HLD, LLD and their grounding reports). All optional.
+        copied_documents: list[str] = []
+        for name in DOWNSTREAM_DOCUMENTS:
+            data = read_optional_document(docs_dir, name)
+            if data is not None:
+                self._artifacts.save_document(job.id, name, data)
+                copied_documents.append(name)
+        if copied_documents:
+            logger.info("Job %s: copied downstream documents %s", job.id, copied_documents)
+
         served_from_cache = bool(
             baseline is not None
             and baseline.completed_at is not None
@@ -147,6 +163,7 @@ class JobRunner:
                 overview_available=True,
                 served_from_codewiki_cache=served_from_cache,
                 progress_message=None,
+                documents=tuple(copied_documents),
                 codewiki=_to_job_info(job.codewiki_job_id, fresh),
             )
         )

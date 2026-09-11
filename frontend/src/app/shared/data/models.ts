@@ -55,6 +55,13 @@ export interface DocumentationJob {
   modules_total?: number | null;
   modules_completed?: number | null;
 
+  /**
+   * Downstream artifacts stored beside overview.md: any of "overview.json",
+   * "hld.md", "lld.md" and their "*.validation.json". Empty for jobs that ran
+   * before the HLD/LLD pipeline or with those stages disabled.
+   */
+  documents?: string[] | null;
+
   codewiki?: CodeWikiRunInfo | null;
 }
 

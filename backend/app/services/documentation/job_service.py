@@ -184,6 +184,23 @@ class DocumentationJobService:
             )
         return content
 
+    def list_documents(self, job_id: uuid.UUID) -> list[str]:
+        """Downstream documents stored for this job (overview.json / hld.md /
+        lld.md / their *.validation.json). Empty for jobs that predate the
+        HLD/LLD pipeline or ran with those stages disabled."""
+        self.get_job(job_id)  # 404s if unknown
+        return self._artifacts.list_documents(job_id)
+
+    def get_document_bytes(self, job_id: uuid.UUID, name: str) -> bytes:
+        job = self.get_job(job_id)
+        content = self._artifacts.read_document(job_id, name)
+        if content is None:
+            raise DocumentationNotAvailableError(
+                f"This job has no '{name}' document.",
+                details={"job_status": job.status.value, "document": name},
+            )
+        return content
+
     async def probe_engine(self) -> dict[str, object]:
         reachable = await self._client.is_reachable()
         return {"engine": "codewiki", "reachable": reachable, "base_url": self._base_url}

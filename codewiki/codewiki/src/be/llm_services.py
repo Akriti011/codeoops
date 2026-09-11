@@ -7,6 +7,7 @@ return slightly non-standard responses (e.g. choices[].index = None).
 Supports multiple providers: openai-compatible, anthropic, bedrock, azure-openai.
 """
 import contextlib
+import dataclasses
 import logging
 import os
 import threading
@@ -49,11 +50,27 @@ _ollama_call_lock = threading.Semaphore(1)
 
 
 def _is_ollama_endpoint(base_url: str) -> bool:
-    """Best-effort detection of an Ollama server behind an openai-compatible base_url."""
-    if not base_url:
+    """Whether *this specific endpoint* is Ollama — needs its native
+    ``/api/chat`` path for a per-call num_ctx and the process-wide
+    serialization lock — vs. a plain OpenAI-compatible server such as vLLM.
+
+    Decided per URL so a mixed deployment works (overview on local Ollama,
+    HLD/LLD on a vLLM box): the URL is checked first. ``INFERENCE_BACKEND``
+    is a global hint that can only *rule out* the Ollama path
+    (``vllm`` / ``openai`` / ``openai-compatible`` / ``tgi`` / ``llama-cpp``)
+    — it never forces it, so it can't misroute a per-stage vLLM endpoint.
+    """
+    lowered = (base_url or "").lower()
+    if "11434" in lowered or "ollama" in lowered:
+        return True
+    # An explicit non-Ollama engine never takes the Ollama path — this is
+    # what INFERENCE_BACKEND=vllm buys you. It is checked *after* the URL so
+    # a per-stage Ollama endpoint in a mixed deployment still routes right.
+    if os.getenv("INFERENCE_BACKEND", "").strip().lower() in (
+        "vllm", "openai", "openai-compatible", "tgi", "llama-cpp"
+    ):
         return False
-    lowered = base_url.lower()
-    return "11434" in lowered or "ollama" in lowered
+    return False
 
 
 def _ollama_extra_body(num_ctx: int | None = None) -> dict:
@@ -277,6 +294,8 @@ def call_llm(
     temperature: float = 0.0,
     max_tokens: int | None = None,
     num_ctx: int | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
 ) -> str:
     """
     Call LLM with the given prompt.
@@ -303,6 +322,17 @@ def call_llm(
         model = config.main_model
     if max_tokens is None:
         max_tokens = config.max_tokens
+
+    # Per-call endpoint override: a pipeline stage can target a different
+    # inference server (e.g. HLD/LLD on a vLLM box, overview on local Ollama)
+    # without a global config change. Everything downstream reads
+    # config.llm_base_url / config.llm_api_key, so a shallow replace is enough.
+    if base_url or api_key:
+        config = dataclasses.replace(
+            config,
+            llm_base_url=base_url or config.llm_base_url,
+            llm_api_key=api_key or config.llm_api_key,
+        )
 
     provider = getattr(config, "provider", "openai-compatible")
 

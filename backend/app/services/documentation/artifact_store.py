@@ -39,6 +39,29 @@ class ArtifactStore:
             return None
         return path.read_bytes()
 
+    def save_document(self, job_id: uuid.UUID, name: str, content: bytes) -> Path:
+        """Store one downstream document (overview.json / hld.md / lld.md / …)
+        next to the overview. ``name`` is a bare filename, never a path."""
+        safe = Path(name).name
+        with self._lock:
+            job_dir = self._job_dir(job_id)
+            job_dir.mkdir(parents=True, exist_ok=True)
+            path = job_dir / safe
+            path.write_bytes(content)
+            return path
+
+    def read_document(self, job_id: uuid.UUID, name: str) -> bytes | None:
+        path = self._job_dir(job_id) / Path(name).name
+        if not path.is_file():
+            return None
+        return path.read_bytes()
+
+    def list_documents(self, job_id: uuid.UUID) -> list[str]:
+        job_dir = self._job_dir(job_id)
+        if not job_dir.is_dir():
+            return []
+        return sorted(p.name for p in job_dir.iterdir() if p.is_file() and p.name != OVERVIEW_FILENAME)
+
     def delete(self, job_id: uuid.UUID) -> None:
         """Remove this job's verified-artifact directory. Idempotent."""
         with self._lock:

@@ -12,7 +12,16 @@
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-REQUIRED_MODEL="codewiki-qwen2.5-16k:latest"
+# Every model name any stage might use, pulled from .env (per-stage overrides
+# + the MAIN_MODEL fallback). Whatever is set there is what must be present in
+# Ollama — this check follows the config, it does not hardcode a model.
+_env_val() { grep -E "^${1}=" .env 2>/dev/null | tail -1 | cut -d= -f2- | tr -d "\"'" ; }
+REQUIRED_MODELS="$(
+  for k in MAIN_MODEL OVERVIEW_MODEL HLD_MODEL LLD_MODEL CLUSTER_MODEL FALLBACK_MODEL_1; do
+    v="$(_env_val "$k")"; [ -n "$v" ] && echo "$v"
+  done | sort -u
+)"
+[ -z "$REQUIRED_MODELS" ] && REQUIRED_MODELS="qwen2.5-coder:7b"
 IMAGES=(codeoops-codewiki codeoops-backend codeoops-frontend)
 FAIL=0
 FRONTEND=1
@@ -69,14 +78,18 @@ fi
 step "3. Ollama (native on the host — not a container in this stack)"
 if curl -sf http://localhost:11434/api/tags >/dev/null 2>&1; then
   ok "Ollama reachable at localhost:11434"
-  if curl -s http://localhost:11434/api/tags | grep -q "\"${REQUIRED_MODEL}\""; then
-    ok "Model ${REQUIRED_MODEL} present"
-  else
-    err "Model ${REQUIRED_MODEL} not found locally."
-    echo "      Run: ollama pull ${REQUIRED_MODEL}"
-    echo "      (or set MAIN_MODEL / FALLBACK_MODEL_1 / CLUSTER_MODEL in .env to a model you already have —"
-    echo "       do not silently substitute one without updating .env, generation quality depends on it)"
-  fi
+  _tags="$(curl -s http://localhost:11434/api/tags)"
+  while IFS= read -r m; do
+    [ -z "$m" ] && continue
+    if echo "$_tags" | grep -q "\"${m}\""; then
+      ok "Model ${m} present"
+    else
+      err "Model ${m} (from .env) not found in Ollama."
+      echo "      Run: ollama pull ${m}"
+      echo "      (or edit the matching *_MODEL / MAIN_MODEL line in .env to a model you have —"
+      echo "       run 'python3 scripts/model_advisor.py' for a hardware-based recommendation.)"
+    fi
+  done <<< "$REQUIRED_MODELS"
 else
   err "Ollama not reachable at localhost:11434."
   echo "      Start it: 'ollama serve', or launch the Ollama.app menu-bar app on macOS."

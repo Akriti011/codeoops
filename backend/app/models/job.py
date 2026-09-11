@@ -52,6 +52,10 @@ class DocumentationJob:
     overview_available: bool = False
     served_from_codewiki_cache: bool = False
     provider: str = "codewiki"
+    # Downstream artifacts CodeWiki produced beside overview.md and that
+    # CodeOops copied into its own store: any of "overview.json", "hld.md",
+    # "lld.md" (plus their *.validation.json). Empty on older jobs.
+    documents: tuple[str, ...] = ()
 
     def with_update(self, **changes: object) -> "DocumentationJob":
         return replace(self, **changes)

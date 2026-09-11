@@ -16,10 +16,14 @@ from codewiki.src.be import evidence_extractor
 from codewiki.src.be import overview_mapreduce
 from codewiki.src.be import module_descriptor
 from codewiki.src.be import module_grouper
+from codewiki.src.be import overview_ir as overview_ir_mod
+from codewiki.src.be import doc_validator
 from codewiki.src.be.prompt_template import (
     REPO_OVERVIEW_PROMPT,
     MODULE_OVERVIEW_PROMPT,
     OVERVIEW_ONLY_PROMPT,
+    HLD_PROMPT,
+    LLD_PROMPT,
 )
 from codewiki.src.be.cluster_modules import (
     cluster_modules,
@@ -57,6 +61,18 @@ OVERVIEW_ONLY_MAX_OUTPUT_TOKENS = int(os.getenv("OVERVIEW_MAX_OUTPUT_TOKENS", "3
 OVERVIEW_ONLY_NUM_CTX = int(os.getenv("OLLAMA_NUM_CTX", "4096"))
 
 
+def _stage_enabled(stage: str) -> bool:
+    """Whether the HLD ("hld") / LLD ("lld") pipeline stage should run.
+    Read at call time so tests / a redeploy can flip it without reimport."""
+    from codewiki.src import config as _cfg
+    return {"hld": _cfg.HLD_ENABLED, "lld": _cfg.LLD_ENABLED}.get(stage, False)
+
+
+def _validator_enabled() -> bool:
+    from codewiki.src import config as _cfg
+    return _cfg.DOC_VALIDATOR_ENABLED
+
+
 def _strip_outer_code_fence(text: str) -> str:
     """Models sometimes wrap an entire Markdown answer in its own code fence
     (```markdown ... ```) despite already being asked for raw Markdown output
@@ -69,6 +85,15 @@ def _strip_outer_code_fence(text: str) -> str:
     lines = text.strip().splitlines()
     if len(lines) >= 2 and lines[0].strip().startswith("```") and lines[-1].strip() == "```":
         return "\n".join(lines[1:-1]).strip()
+    # Half-wrapped: a bare opening ```lang line right before a heading, with an
+    # odd number of fences overall (so no matching close). Drop the stray line.
+    if (
+        len(lines) >= 2
+        and re.fullmatch(r"```[\w-]*", lines[0].strip())
+        and lines[1].lstrip().startswith("#")
+        and text.count("```") % 2 == 1
+    ):
+        return "\n".join(lines[1:]).strip()
     return text.strip()
 
 
@@ -509,12 +534,21 @@ class DocumentationGenerator:
             architecture_evidence=architecture_evidence,
         )
 
+        from codewiki.src.config import task_model as _task_model
+        _ov = _task_model("overview")
+        logger.info(
+            "Stage 2 (overview): model=%s num_ctx=%d max_tokens=%d endpoint=%s",
+            _ov.model, _ov.num_ctx, _ov.max_tokens, _ov.base_url,
+        )
         try:
             response = self.backend.complete(
                 prompt,
-                temperature=0.2,
-                max_tokens=OVERVIEW_ONLY_MAX_OUTPUT_TOKENS,
-                num_ctx=OVERVIEW_ONLY_NUM_CTX,
+                model=_ov.model or None,
+                temperature=_ov.temperature,
+                max_tokens=_ov.max_tokens,
+                num_ctx=_ov.num_ctx,
+                base_url=_ov.base_url or None,
+                api_key=_ov.api_key or None,
             )
         except Exception as e:
             logger.error(f"Error generating single-shot overview for {repo_name}: {str(e)}")
@@ -557,7 +591,182 @@ class DocumentationGenerator:
             "Single-shot overview written: path=%s bytes=%d",
             overview_path, os.path.getsize(overview_path),
         )
+
+        # --- Structured Overview IR (machine-readable source of truth) -----
+        try:
+            ir = overview_ir_mod.build_overview_ir(
+                self.config, components, leaf_nodes, overview_content
+            )
+            file_manager.save_json(ir, os.path.join(working_dir, "overview.json"))
+            logger.info(
+                "Overview IR written: %d components, %d modules, %d integrations",
+                len(ir.get("components", [])), len(ir.get("modules", [])),
+                len(ir.get("integrations", [])),
+            )
+        except Exception:
+            logger.exception("Failed to build overview IR (overview.md is unaffected)")
+            ir = None
+
+        # --- Stage 3: HLD, Stage 4: LLD (model-agnostic, own configs) -----
+        if ir is not None and _stage_enabled("hld"):
+            try:
+                hld_md = await self.generate_hld(ir, overview_content, working_dir)
+                if hld_md is not None and _stage_enabled("lld"):
+                    await self.generate_lld(ir, hld_md, components, working_dir)
+            except Exception:
+                logger.exception("HLD/LLD stage failed (overview.md + overview.json are unaffected)")
+
         return working_dir
+
+    # ------------------------------------------------------------------
+    # HLD / LLD generation stages
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _render_ir_for_prompt(ir: Dict[str, Any]) -> str:
+        """Compact text digest of the Overview IR for prompt injection. Built
+        once and reused by both HLD and LLD so facts are never re-typed."""
+        p = ir.get("project", {})
+        lines: List[str] = []
+        lines.append(f"PROJECT: {p.get('name')} — {p.get('file_count')} source files, "
+                     f"{p.get('component_count')} components, {p.get('module_count')} modules; "
+                     f"languages: {', '.join(f'{k} ({v})' for k, v in list(p.get('languages', {}).items())[:6])}")
+        lines.append("")
+        lines.append("MODULES (name | files | components):")
+        for m in ir.get("modules", [])[:40]:
+            lines.append(f"  - {m['name']} | {m['file_count']} files | {m['component_count']} components")
+        lines.append("")
+        if ir.get("dependency_edges"):
+            lines.append("MODULE DEPENDENCY EDGES (from -> to, weight):")
+            for e in ir["dependency_edges"][:40]:
+                lines.append(f"  - {e['from']} -> {e['to']}  ({e['weight']})")
+            lines.append("")
+        lines.append("MOST CENTRAL COMPONENTS (name | kind | file:line | in-degree | depends on):")
+        for c in ir.get("components", [])[:60]:
+            deps = ", ".join(c.get("depends_on", [])[:6])
+            loc = f"{c.get('file')}:{c.get('start_line') or '?'}"
+            lines.append(f"  - {c['name']} | {c['kind']} | {loc} | {c.get('in_degree', 0)} | {deps}")
+        lines.append("")
+        if ir.get("entrypoints"):
+            lines.append("ENTRY POINTS: " + ", ".join(ir["entrypoints"][:20]))
+        if ir.get("integrations"):
+            lines.append("EXTERNAL INTEGRATIONS:")
+            for i in ir["integrations"]:
+                lines.append(f"  - {i['target']} <- {', '.join(i['files'][:5])}")
+        if ir.get("frontend"):
+            lines.append("FRONTEND: " + " | ".join(ir["frontend"]))
+        if ir.get("tech_stack"):
+            lines.append("TECH STACK (declared dependencies): " + ", ".join(ir["tech_stack"][:60]))
+        if ir.get("config_env"):
+            lines.append("CONFIG / ENV VARS: " + ", ".join(ir["config_env"][:60]))
+        if ir.get("architecture_signals"):
+            lines.append("ARCHITECTURE SIGNALS:")
+            for s in ir["architecture_signals"][:30]:
+                lines.append(f"  - {s}")
+        return "\n".join(lines)
+
+    def _finalize_generated_doc(self, raw: str, tag: str, ir: Dict[str, Any],
+                                kind: str, out_path: str) -> str | None:
+        """Unwrap the <TAG> body, sanitize mermaid, run the grounding
+        validator, append the Verification block, and write the file."""
+        if f"<{tag}>" in raw and f"</{tag}>" in raw:
+            body = raw.split(f"<{tag}>")[1].split(f"</{tag}>")[0].strip()
+        else:
+            logger.warning("%s response missing <%s> wrapper; using raw response.", kind.upper(), tag)
+            body = raw.strip()
+        body = _strip_outer_code_fence(body)
+        body = overview_mapreduce._strip_image_links(body)
+        body = _sanitize_mermaid_labels(body)
+        body = _strip_degenerate_mermaid_diagrams(body)
+        if not body:
+            logger.error("%s generation produced an empty document", kind.upper())
+            return None
+
+        if _validator_enabled():
+            try:
+                report = doc_validator.validate_doc(body, ir, doc_kind=kind)
+                body = body.rstrip() + "\n" + doc_validator.verification_block(report, ir)
+                file_manager.save_json(report, out_path.replace(".md", ".validation.json"))
+                logger.info(
+                    "%s grounding check: %d refs, %d unsupported (verdict=%s)",
+                    kind.upper(), report["checked_references"],
+                    report["unsupported_count"], report["verdict"],
+                )
+            except Exception:
+                logger.exception("%s grounding check failed; document kept as-is", kind.upper())
+
+        file_manager.save_text(body, out_path)
+        logger.info("%s written: path=%s bytes=%d", kind.upper(), out_path, os.path.getsize(out_path))
+        return body
+
+    async def generate_hld(self, ir: Dict[str, Any], overview_markdown: str,
+                           working_dir: str) -> str | None:
+        from codewiki.src.config import task_model
+        tm = task_model("hld")
+        repo_name = ir.get("project", {}).get("name", "project")
+        logger.info("Stage 3 (HLD): model=%s num_ctx=%d max_tokens=%d", tm.model, tm.num_ctx, tm.max_tokens)
+
+        # keep the narrative bounded — the IR digest carries the facts
+        narrative = (overview_markdown or "").strip()[:8000]
+        prompt = HLD_PROMPT.format(
+            repo_name=repo_name,
+            structured_context=self._render_ir_for_prompt(ir),
+            overview_narrative=narrative,
+        )
+        try:
+            raw = self.backend.complete(
+                prompt, model=tm.model or None, temperature=tm.temperature,
+                max_tokens=tm.max_tokens, num_ctx=tm.num_ctx,
+                base_url=tm.base_url or None, api_key=tm.api_key or None,
+            )
+        except Exception:
+            logger.exception("HLD LLM call failed")
+            return None
+        return self._finalize_generated_doc(
+            raw, "HLD", ir, "hld", os.path.join(working_dir, "hld.md")
+        )
+
+    async def generate_lld(self, ir: Dict[str, Any], hld_markdown: str,
+                           components: Dict[str, Any], working_dir: str) -> str | None:
+        from codewiki.src.config import task_model, LLD_CODE_CONTEXT_FILES, LLD_CODE_CONTEXT_CHARS
+        tm = task_model("lld")
+        repo_name = ir.get("project", {}).get("name", "project")
+        logger.info("Stage 4 (LLD): model=%s num_ctx=%d max_tokens=%d", tm.model, tm.num_ctx, tm.max_tokens)
+
+        # code-level context: source of the most central components, deduped by file
+        excerpts: List[str] = []
+        seen_files: set = set()
+        for c in ir.get("components", []):
+            if len(seen_files) >= LLD_CODE_CONTEXT_FILES:
+                break
+            fpath = c.get("file")
+            if not fpath or fpath in seen_files:
+                continue
+            node = components.get(c["id"])
+            src = getattr(node, "source_code", None) if node is not None else None
+            if not src:
+                continue
+            seen_files.add(fpath)
+            excerpts.append(f"### {fpath} — {c['name']} ({c['kind']})\n```\n{src[:LLD_CODE_CONTEXT_CHARS]}\n```")
+        code_excerpts = "\n\n".join(excerpts) if excerpts else "No source excerpts were available."
+
+        prompt = LLD_PROMPT.format(
+            repo_name=repo_name,
+            structured_context=self._render_ir_for_prompt(ir),
+            hld_content=(hld_markdown or "")[:9000],
+            code_excerpts=code_excerpts,
+        )
+        try:
+            raw = self.backend.complete(
+                prompt, model=tm.model or None, temperature=tm.temperature,
+                max_tokens=tm.max_tokens, num_ctx=tm.num_ctx,
+                base_url=tm.base_url or None, api_key=tm.api_key or None,
+            )
+        except Exception:
+            logger.exception("LLD LLM call failed")
+            return None
+        return self._finalize_generated_doc(
+            raw, "LLD", ir, "lld", os.path.join(working_dir, "lld.md")
+        )
 
     async def generate_parent_module_docs(self, module_path: List[str],
                                         working_dir: str) -> Dict[str, Any]:

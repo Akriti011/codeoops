@@ -105,10 +105,12 @@ class PydanticAIBackend(LLMBackend):
         temperature: float = 0.0,
         max_tokens: int | None = None,
         num_ctx: int | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
     ) -> str:
         return call_llm(
             prompt, self._config, model=model, temperature=temperature, max_tokens=max_tokens,
-            num_ctx=num_ctx,
+            num_ctx=num_ctx, base_url=base_url, api_key=api_key,
         )
 
     async def run_module_agent(

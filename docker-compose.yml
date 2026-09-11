@@ -28,6 +28,11 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-dummy}
+      # "ollama" (default; enables Ollama's native num_ctx path + call
+      # serialization) or "vllm"/"openai" (plain OpenAI-compatible: context is
+      # set server-side, no per-call num_ctx). Purely a routing hint — the
+      # actual endpoint is still LLM_BASE_URL / {STAGE}_LLM_BASE_URL.
+      INFERENCE_BACKEND: ${INFERENCE_BACKEND:-ollama}
       OVERVIEW_ONLY_MODE: ${OVERVIEW_ONLY_MODE:-true}
       # "single" (default, one bounded LLM call) or "mapreduce" (per-module
       # passes + a reduce — slower, more thorough on multi-subsystem repos).
@@ -38,6 +43,30 @@ services:
       EVIDENCE_MAX_REPRESENTATIVE_FILES: ${EVIDENCE_MAX_REPRESENTATIVE_FILES:-3}
       EVIDENCE_MAX_SIGNAL_FINDINGS: ${EVIDENCE_MAX_SIGNAL_FINDINGS:-18}
       LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-1200}
+      # --- Model-agnostic pipeline: per-stage model + decoding config. -----
+      # Any unset value falls back to the overview value, which falls back to
+      # MAIN_MODEL / OLLAMA_NUM_CTX / OVERVIEW_MAX_OUTPUT_TOKENS. A 7B .env
+      # with none of these set behaves exactly as before.
+      OVERVIEW_MODEL: ${OVERVIEW_MODEL:-}
+      OVERVIEW_NUM_CTX: ${OVERVIEW_NUM_CTX:-}
+      OVERVIEW_MAX_TOKENS: ${OVERVIEW_MAX_TOKENS:-}
+      OVERVIEW_TEMPERATURE: ${OVERVIEW_TEMPERATURE:-}
+      HLD_ENABLED: ${HLD_ENABLED:-true}
+      HLD_MODEL: ${HLD_MODEL:-}
+      HLD_NUM_CTX: ${HLD_NUM_CTX:-}
+      HLD_MAX_TOKENS: ${HLD_MAX_TOKENS:-}
+      HLD_TEMPERATURE: ${HLD_TEMPERATURE:-}
+      HLD_LLM_BASE_URL: ${HLD_LLM_BASE_URL:-}
+      HLD_LLM_API_KEY: ${HLD_LLM_API_KEY:-}
+      LLD_ENABLED: ${LLD_ENABLED:-true}
+      LLD_MODEL: ${LLD_MODEL:-}
+      LLD_NUM_CTX: ${LLD_NUM_CTX:-}
+      LLD_MAX_TOKENS: ${LLD_MAX_TOKENS:-}
+      LLD_TEMPERATURE: ${LLD_TEMPERATURE:-}
+      LLD_LLM_BASE_URL: ${LLD_LLM_BASE_URL:-}
+      LLD_LLM_API_KEY: ${LLD_LLM_API_KEY:-}
+      LLD_CODE_CONTEXT_FILES: ${LLD_CODE_CONTEXT_FILES:-12}
+      DOC_VALIDATOR_ENABLED: ${DOC_VALIDATOR_ENABLED:-true}
     ports:
       - "8001:8000"
     volumes:
@@ -48,7 +77,7 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - codeoops-net
-    mem_limit: 2g
+    mem_limit: ${CODEWIKI_MEM_LIMIT:-2g}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
@@ -56,6 +85,59 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+
+  # ----------------------------------------------------------------------
+  # Optional GPU inference server. NOT started by `docker compose up` — it
+  # only runs under the "gpu" profile:  docker compose --profile gpu up -d
+  #
+  # OpenAI-compatible, so the app talks to it exactly like any other
+  # endpoint. The 14B model is NOT in this image or the app image — vLLM
+  # pulls it into the hf-cache volume on first start (or pre-populate that
+  # volume offline). Point the pipeline at it with, in .env:
+  #     INFERENCE_BACKEND=vllm
+  #     HLD_LLM_BASE_URL=http://vllm:8000/v1
+  #     LLD_LLM_BASE_URL=http://vllm:8000/v1
+  #     HLD_MODEL=qwen2.5-coder-14b        (== VLLM_SERVED_NAME below)
+  #     LLD_MODEL=qwen2.5-coder-14b
+  # ----------------------------------------------------------------------
+  vllm:
+    image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.6.3.post1}
+    container_name: codeoops-vllm
+    profiles: ["gpu"]
+    command: >
+      --model ${VLLM_MODEL:-Qwen/Qwen2.5-Coder-14B-Instruct-AWQ}
+      --served-model-name ${VLLM_SERVED_NAME:-qwen2.5-coder-14b}
+      --max-model-len ${VLLM_MAX_MODEL_LEN:-32768}
+      --gpu-memory-utilization ${VLLM_GPU_MEMORY_UTILIZATION:-0.92}
+      --dtype ${VLLM_DTYPE:-auto}
+      --port 8000
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+      VLLM_API_KEY: ${VLLM_API_KEY:-}
+    volumes:
+      # model weights + tokenizer live here, outside the image
+      - hf-cache:/root/.cache/huggingface
+    ports:
+      - "8002:8000"
+    ipc: host                 # vLLM uses shared memory for tensor ops
+    shm_size: ${VLLM_SHM_SIZE:-8gb}
+    networks:
+      - codeoops-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${VLLM_GPU_COUNT:-all}
+              capabilities: [gpu]
+    healthcheck:
+      # /health returns 200 only once the model is loaded and ready
+      test: ["CMD", "sh", "-c", "curl -fsS http://localhost:8000/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 40          # first start downloads the model — allow ~13 min
+      start_period: 60s
 
   backend:
     build: ./backend
@@ -120,3 +202,6 @@ volumes:
   codewiki-output:
   # Backend's own copy of verified overview bytes, keyed by CodeOops job id.
   codeoops-artifacts:
+  # HuggingFace model cache for the optional `vllm` service — the 14B model
+  # weights, kept out of every image. Survives `docker compose down`.
+  hf-cache:

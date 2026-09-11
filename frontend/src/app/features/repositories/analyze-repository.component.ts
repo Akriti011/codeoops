@@ -52,7 +52,33 @@ const REPO_PATTERN =
 
       <div class="split">
         <!-- ---------------- form ---------------- -->
-        <co-card title="Repository" subtitle="Git URL">
+        <co-card title="Repository" [subtitle]="mode() === 'url' ? 'Git URL' : 'ZIP upload'">
+          <div class="modes" role="tablist" aria-label="Repository source">
+            <button
+              type="button"
+              role="tab"
+              class="modes__btn"
+              [class.modes__btn--active]="mode() === 'url'"
+              [attr.aria-selected]="mode() === 'url'"
+              (click)="setMode('url')"
+              [disabled]="submitting()"
+            >
+              <co-icon name="git" /><span>Git URL</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="modes__btn"
+              [class.modes__btn--active]="mode() === 'zip'"
+              [attr.aria-selected]="mode() === 'zip'"
+              (click)="setMode('zip')"
+              [disabled]="submitting()"
+            >
+              <co-icon name="upload" /><span>Upload ZIP</span>
+            </button>
+          </div>
+
+          @if (mode() === 'url') {
           <form class="form stack" [formGroup]="form" (ngSubmit)="submit()">
             <div class="field">
               <label class="field__label" for="repoUrl">Repository URL</label>
@@ -74,7 +100,8 @@ const REPO_PATTERN =
               } @else {
                 <p class="field__hint" id="repoUrlHint">
                   HTTPS. The repository must be reachable from the CodeOops backend. Generation
-                  always uses the repository's default branch.
+                  always uses the repository's default branch. Private repos need a GITHUB_TOKEN
+                  in .env — otherwise use ZIP upload.
                 </p>
               }
             </div>
@@ -104,6 +131,64 @@ const REPO_PATTERN =
               </button>
             </div>
           </form>
+          } @else {
+          <div class="form stack">
+            <div
+              class="drop"
+              [class.drop--over]="dragOver()"
+              (dragover)="onDragOver($event)"
+              (dragleave)="dragOver.set(false)"
+              (drop)="onDrop($event)"
+              (click)="fileInput.click()"
+            >
+              <input
+                #fileInput
+                type="file"
+                accept=".zip,application/zip"
+                hidden
+                (change)="onFilePicked($event)"
+              />
+              <co-icon name="upload" class="drop__icon" />
+              @if (selectedFile(); as f) {
+                <p class="drop__name">{{ f.name }}</p>
+                <p class="drop__hint">{{ humanSize(f.size) }} · click or drop to replace</p>
+              } @else {
+                <p class="drop__name">Drop a .zip here, or click to choose</p>
+                <p class="drop__hint">A ZIP of the repository's source tree. No .git needed.</p>
+              }
+            </div>
+
+            @if (submitError(); as message) {
+              <div class="alert" role="alert">
+                <co-icon name="alert" class="alert__icon" />
+                <div>
+                  <p class="alert__title">Upload failed</p>
+                  <p class="alert__text">{{ message }}</p>
+                </div>
+              </div>
+            }
+
+            <div class="row">
+              <button
+                type="button"
+                class="btn btn--primary"
+                [disabled]="submitting() || !selectedFile()"
+                (click)="submitZip()"
+              >
+                <co-icon [name]="submitting() ? 'clock' : 'play'" />
+                <span>{{ submitting() ? 'Uploading…' : 'Upload & generate' }}</span>
+              </button>
+              <button
+                type="button"
+                class="btn btn--quiet"
+                (click)="reset()"
+                [disabled]="submitting()"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+          }
         </co-card>
 
         <!-- ---------------- what happens ---------------- -->
@@ -175,6 +260,32 @@ const REPO_PATTERN =
     }
 
     .form { gap: var(--s-5); }
+
+    .modes {
+      display: inline-flex; gap: var(--s-1);
+      background: var(--grey-100); padding: 0.25rem;
+      border-radius: var(--r-md); margin-bottom: var(--s-5);
+    }
+    .modes__btn {
+      display: inline-flex; align-items: center; gap: var(--s-2);
+      padding: 0.4rem 0.8rem; border: 0; background: none; cursor: pointer;
+      border-radius: var(--r-sm); font-size: var(--t-sm); font-weight: 600;
+      color: var(--text-secondary);
+      co-icon { width: 1rem; height: 1rem; }
+    }
+    .modes__btn--active { background: var(--white); color: var(--text); box-shadow: var(--shadow-xs); }
+    .modes__btn:disabled { opacity: 0.6; cursor: default; }
+
+    .drop {
+      display: grid; justify-items: center; gap: 0.25rem;
+      padding: var(--s-8) var(--s-5);
+      border: 1.5px dashed var(--border); border-radius: var(--r-md);
+      background: var(--grey-50); cursor: pointer; text-align: center;
+    }
+    .drop:hover, .drop--over { border-color: var(--red-400); background: var(--red-50); }
+    .drop__icon { width: 1.75rem; height: 1.75rem; color: var(--text-muted); }
+    .drop__name { font-weight: 600; }
+    .drop__hint { font-size: var(--t-sm); color: var(--text-muted); }
 
     .alert {
       display: flex;
@@ -253,22 +364,26 @@ export class AnalyzeRepositoryComponent {
   protected readonly attempted = signal(false);
   protected readonly jobs = signal<DocumentationJob[]>([]);
 
+  protected readonly mode = signal<'url' | 'zip'>('url');
+  protected readonly selectedFile = signal<File | null>(null);
+  protected readonly dragOver = signal(false);
+
   protected readonly steps = [
     {
       title: 'CodeOops creates a job',
-      text: 'The URL is validated and a documentation job is queued.',
+      text: 'A Git URL is validated, or a ZIP is extracted, and a documentation job is queued.',
     },
     {
       title: 'CodeWiki analyses the repository',
-      text: 'Files are parsed, dependencies resolved and modules clustered.',
+      text: 'Files are parsed and the dependency + call graph is built (no LLM).',
     },
     {
-      title: 'The overview is generated',
-      text: 'Each module is summarised, then reduced into one overview document.',
+      title: 'Overview → HLD → LLD',
+      text: 'The overview and its structured IR are generated, then the High- and Low-Level Design stages run from that IR — each with its own configured model.',
     },
     {
-      title: 'The artifact is bound to the job',
-      text: 'CodeOops verifies the artifact came from this repository before showing it.',
+      title: 'Grounded and bound to the job',
+      text: 'Every document is checked against the analysed code, and CodeOops verifies the artifact came from this repository before showing it.',
     },
   ];
 
@@ -327,6 +442,68 @@ export class AnalyzeRepositoryComponent {
     this.form.reset({ repositoryUrl: '' });
     this.attempted.set(false);
     this.submitError.set(null);
+    this.selectedFile.set(null);
+  }
+
+  protected setMode(m: 'url' | 'zip'): void {
+    if (this.submitting()) return;
+    this.mode.set(m);
+    this.submitError.set(null);
+  }
+
+  protected onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    this.dragOver.set(true);
+  }
+
+  protected onDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.dragOver.set(false);
+    const file = event.dataTransfer?.files?.[0];
+    if (file) this.takeFile(file);
+  }
+
+  protected onFilePicked(event: Event): void {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (file) this.takeFile(file);
+  }
+
+  private takeFile(file: File): void {
+    if (!/\.zip$/i.test(file.name)) {
+      this.submitError.set('Please choose a .zip archive.');
+      return;
+    }
+    this.submitError.set(null);
+    this.selectedFile.set(file);
+  }
+
+  protected humanSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  protected submitZip(): void {
+    const file = this.selectedFile();
+    if (!file || this.submitting()) return;
+    this.submitError.set(null);
+    this.submitting.set(true);
+
+    this.api
+      .uploadAndGenerate(file)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (job) => {
+          this.submitting.set(false);
+          void this.router.navigate(job?.id ? ['/jobs', job.id] : ['/jobs']);
+        },
+        error: (err: unknown) => {
+          this.submitting.set(false);
+          this.submitError.set(
+            httpErrorMessage(err, 'The backend rejected the upload without a message.'),
+          );
+        },
+      });
   }
 
   protected nameOf(job: DocumentationJob): string {

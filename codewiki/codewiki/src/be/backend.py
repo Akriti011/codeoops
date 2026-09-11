@@ -44,6 +44,8 @@ class LLMBackend(abc.ABC):
         temperature: float = 0.0,
         max_tokens: int | None = None,
         num_ctx: int | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
     ) -> str:
         """Single-shot text completion.
 
@@ -52,6 +54,11 @@ class LLMBackend(abc.ABC):
         callers. ``num_ctx`` likewise overrides the Ollama context window
         for this one call only (ignored for non-Ollama endpoints and
         subscription-CLI backends, which don't expose it).
+
+        ``base_url`` / ``api_key`` override the inference endpoint for this
+        call only — used by the HLD/LLD pipeline stages to reach a different
+        server (e.g. a GPU vLLM box) than the overview stage. Ignored by
+        subscription-CLI backends.
         """
 
     @abc.abstractmethod

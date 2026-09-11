@@ -40,8 +40,11 @@ const ENDPOINTS = {
   job: (id: string) => `${API_BASE}/documentation/jobs/${encodeURIComponent(id)}`,
   jobOverview: (id: string) =>
     `${API_BASE}/documentation/jobs/${encodeURIComponent(id)}/overview`,
+  jobDocument: (id: string, name: string) =>
+    `${API_BASE}/documentation/jobs/${encodeURIComponent(id)}/documents/${encodeURIComponent(name)}`,
   repositories: `${API_BASE}/repositories`,
   repository: (id: string) => `${API_BASE}/repositories/${encodeURIComponent(id)}`,
+  upload: `${API_BASE}/repositories/upload`,
   bin: `${API_BASE}/repositories/bin`,
   repositoryRestore: (id: string) =>
     `${API_BASE}/repositories/${encodeURIComponent(id)}/restore`,
@@ -61,6 +64,7 @@ interface RawJob {
   error_code: string | null;
   error_message: string | null;
   overview_available: boolean;
+  documents?: string[] | null;
   codewiki: {
     codewiki_job_id: string;
     codewiki_status: string | null;
@@ -152,14 +156,31 @@ export class CodeOopsApiService {
   createJob(request: CreateJobRequest): Observable<DocumentationJob> {
     return this.http
       .post<RawJob>(ENDPOINTS.jobs, { repository_url: request.repository_url })
-      .pipe(
-        switchMap((job) =>
-          this.http.get<RawRepository>(ENDPOINTS.repository(job.repository_id)).pipe(
-            map((repo) => toDocumentationJob(job, repo)),
-            catchError(() => of(toDocumentationJob(job, undefined))),
-          ),
-        ),
-      );
+      .pipe(switchMap((job) => this.joinJob(job)));
+  }
+
+  /**
+   * Upload a ZIP archive and start documentation generation for it. Two calls:
+   * POST /repositories/upload (multipart) registers the archive as a
+   * repository, then POST /documentation/jobs with its id starts the same
+   * pipeline a Git URL would run (analysis -> overview -> HLD -> LLD).
+   */
+  uploadAndGenerate(file: File): Observable<DocumentationJob> {
+    const body = new FormData();
+    body.append('file', file, file.name);
+    return this.http.post<{ id: string }>(ENDPOINTS.upload, body).pipe(
+      switchMap((repo) =>
+        this.http.post<RawJob>(ENDPOINTS.jobs, { repository_id: repo.id }),
+      ),
+      switchMap((job) => this.joinJob(job)),
+    );
+  }
+
+  private joinJob(job: RawJob): Observable<DocumentationJob> {
+    return this.http.get<RawRepository>(ENDPOINTS.repository(job.repository_id)).pipe(
+      map((repo) => toDocumentationJob(job, repo)),
+      catchError(() => of(toDocumentationJob(job, undefined))),
+    );
   }
 
   /**
@@ -175,6 +196,15 @@ export class CodeOopsApiService {
     return this.http
       .get(ENDPOINTS.jobOverview(jobId), { responseType: 'text' })
       .pipe(map((content) => ({ name, content }) satisfies DocumentationArtifact));
+  }
+
+  /**
+   * Fetch one downstream document by exact filename — "hld.md", "lld.md" or
+   * "overview.json". 404/409 mean the pipeline did not produce it (HLD/LLD
+   * disabled, or an older job).
+   */
+  getJobDocument(jobId: string, name: string): Observable<string> {
+    return this.http.get(ENDPOINTS.jobDocument(jobId, name), { responseType: 'text' });
   }
 
   /**
@@ -267,6 +297,7 @@ function toDocumentationJob(job: RawJob, repo: RawRepository | undefined): Docum
     error_code: job.error_code,
     error_message: job.error_message,
     overview_available: job.overview_available,
+    documents: job.documents ?? [],
     modules_total: null,
     modules_completed: null,
     codewiki: job.codewiki

@@ -12,6 +12,7 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { map } from 'rxjs';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import mermaid from 'mermaid';
@@ -133,7 +134,24 @@ const PRIMARY_DOCUMENT = 'overview.md';
         </aside>
 
         <!-- ---------------- document ---------------- -->
-        <co-card>
+        <co-card flush>
+          @if (availableDocs().length > 1) {
+            <div class="docstrip" role="tablist" aria-label="Documents">
+              @for (d of availableDocs(); track d) {
+                <button
+                  type="button"
+                  role="tab"
+                  class="docstrip__btn"
+                  [class.docstrip__btn--active]="activeDoc() === d"
+                  [attr.aria-selected]="activeDoc() === d"
+                  (click)="selectDoc(d)"
+                >
+                  {{ docLabel(d) }}
+                </button>
+              }
+            </div>
+          }
+          <div class="docbody">
           @if (loading()) {
             <div class="stack">
               <co-skeleton width="55%" height="1.75rem" />
@@ -169,12 +187,32 @@ const PRIMARY_DOCUMENT = 'overview.md';
           } @else {
             <article #articleRef class="md" [innerHTML]="html()"></article>
           }
+          </div>
         </co-card>
       </div>
     </div>
   `,
   styles: `
     :host { display: block; }
+
+    .docstrip {
+      display: flex; gap: var(--s-1);
+      padding: var(--s-3) var(--s-4) 0;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .docstrip__btn {
+      border: 0; background: none; cursor: pointer;
+      padding: 0.5rem 0.9rem;
+      font-size: var(--t-sm); font-weight: 600;
+      color: var(--text-secondary);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .docstrip__btn:hover { color: var(--text); }
+    .docstrip__btn--active { color: var(--red-600); border-bottom-color: var(--red-500); }
+
+    .docbody { padding: var(--s-6); }
 
     .layout {
       display: grid;
@@ -241,6 +279,44 @@ export class DocumentationViewerComponent {
     this.sanitizer.bypassSecurityTrustHtml(this.rendered().html),
   );
 
+  /** Which generated document is shown. overview.md is always available. */
+  protected readonly activeDoc = signal<'overview' | 'hld' | 'lld'>('overview');
+  protected readonly availableDocs = computed<Array<'overview' | 'hld' | 'lld'>>(() => {
+    const docs = this.job()?.documents ?? [];
+    const out: Array<'overview' | 'hld' | 'lld'> = ['overview'];
+    if (docs.includes('hld.md')) out.push('hld');
+    if (docs.includes('lld.md')) out.push('lld');
+    return out;
+  });
+
+  protected docLabel(d: 'overview' | 'hld' | 'lld'): string {
+    return { overview: 'Overview', hld: 'High-Level Design', lld: 'Low-Level Design' }[d];
+  }
+
+  protected selectDoc(d: 'overview' | 'hld' | 'lld'): void {
+    if (this.activeDoc() === d) return;
+    const id = this.jobId();
+    if (!id) return;
+    this.activeDoc.set(d);
+    this.loading.set(true);
+    this.error.set(null);
+    const req =
+      d === 'overview'
+        ? this.api.getDocument(id, 'overview.md').pipe(map((a) => a.content ?? ''))
+        : this.api.getJobDocument(id, `${d}.md`);
+    req.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (text) => {
+        this.markdown.set((text ?? '').trim());
+        this.notGenerated.set(!(text ?? '').trim());
+        this.loading.set(false);
+      },
+      error: (err: unknown) => {
+        this.loading.set(false);
+        this.error.set(httpErrorMessage(err, `The ${this.docLabel(d)} could not be loaded.`));
+      },
+    });
+  }
+
   protected readonly heading = computed(() => {
     const job = this.job();
     return job ? repositoryLabel(job) : 'Overview';
@@ -302,6 +378,7 @@ export class DocumentationViewerComponent {
     this.markdown.set(null);
     this.notGenerated.set(false);
     this.error.set(null);
+    this.activeDoc.set('overview');
 
     if (!id) {
       this.loading.set(false);

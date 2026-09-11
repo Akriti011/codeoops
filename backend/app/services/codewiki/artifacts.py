@@ -59,6 +59,28 @@ def read_overview(docs_dir: Path) -> str:
     return text
 
 
+# Downstream artifacts the pipeline may produce beside overview.md. Optional:
+# an older CodeWiki build, or HLD/LLD disabled, means they simply are not there.
+DOWNSTREAM_DOCUMENTS = (
+    "overview.json",
+    "hld.md",
+    "hld.validation.json",
+    "lld.md",
+    "lld.validation.json",
+)
+
+
+def read_optional_document(docs_dir: Path, name: str) -> bytes | None:
+    """Raw bytes of one downstream document, or ``None`` if it was not produced."""
+    if name not in DOWNSTREAM_DOCUMENTS:
+        raise ValueError(f"unknown downstream document: {name!r}")
+    path = docs_dir / name
+    if not path.is_file():
+        return None
+    data = path.read_bytes()
+    return data or None
+
+
 def read_metadata(docs_dir: Path) -> CodeWikiArtifactMetadata:
     metadata_path = docs_dir / METADATA_FILENAME
     if not metadata_path.is_file():

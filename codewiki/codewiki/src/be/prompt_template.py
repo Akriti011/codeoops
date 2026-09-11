@@ -668,3 +668,118 @@ def format_leaf_system_prompt(module_name: str, custom_instructions: str = None)
         custom_section = f"\n\n<CUSTOM_INSTRUCTIONS>\n{custom_instructions}\n</CUSTOM_INSTRUCTIONS>"
     
     return LEAF_SYSTEM_PROMPT.format(module_name=module_name, custom_instructions=custom_section).strip()
+
+
+# ==========================================================================
+# HLD / LLD stage prompts (model-agnostic pipeline).
+#
+# Both stages are fed a rendered digest of the structured Overview IR
+# (overview_ir.py) plus the overview narrative — they do NOT re-read the
+# repository. The same digest text is built once (documentation_generator.
+# _render_ir_for_prompt) and reused, so facts are never re-typed per prompt.
+# ==========================================================================
+
+HLD_PROMPT = """
+You are a principal software architect. You are given a STRUCTURED, machine-extracted
+description of a repository `{repo_name}` (its real modules, components, dependency
+edges, entry points, integrations and technology stack) and the human overview that
+was generated from it. Produce `hld.md` — the High-Level Design.
+
+GROUND RULES
+- Every component, module, file, integration and technology you name MUST appear in
+  the STRUCTURED CONTEXT below. Do not invent services, databases, queues, cloud
+  providers or layers the context does not show. If the context does not establish
+  something, say "Not evidenced by the analysed codebase." rather than guessing.
+- Reason at the system level. The overview already lists what exists; your job is to
+  explain how it fits together, why, and what the important design characteristics and
+  gaps are — not to restate the component list.
+- Mark non-obvious statements as (fact) when they trace directly to the context, or
+  (inferred) when they are your architectural reading of it.
+- Mermaid labels: plain words only — no parentheses, brackets, or `|` inside `[...]`.
+
+REQUIRED STRUCTURE (omit a section only if the context truly supports nothing):
+1. System Context — what the system is, its external actors and systems, its boundary.
+2. Architecture Overview — the layers/subsystems and how requests/data move through
+   them; one Mermaid diagram built from the real modules and dependency edges.
+3. Major Components & Responsibilities — group the real components by architectural
+   role; for each group: responsibility, key modules/files, what it depends on.
+4. Communication & Data Flow — synchronous vs asynchronous paths, protocols, the
+   sequence of a primary operation end to end.
+5. External Integrations — each external system from the context: purpose, direction,
+   mechanism.
+6. Technology Choices — languages, frameworks, datastores actually detected, and the
+   role each plays.
+7. Deployment & Runtime — process/container topology, entry points, configuration
+   surface (environment variables), from the context only.
+8. Cross-Cutting Concerns — authn/authz, validation, error handling, observability,
+   resilience: what is present, and explicitly what is absent.
+9. Scalability & Risk — where this design will strain under load or change, and the
+   architectural risks a reviewer should know about.
+
+<STRUCTURED_CONTEXT>
+{structured_context}
+</STRUCTURED_CONTEXT>
+
+<OVERVIEW_NARRATIVE>
+{overview_narrative}
+</OVERVIEW_NARRATIVE>
+
+Write clean Markdown starting with `# {repo_name} — High-Level Design`. Output only the
+document between the tags:
+<HLD>
+hld_content
+</HLD>
+""".strip()
+
+
+LLD_PROMPT = """
+You are a senior engineer writing the Low-Level Design for `{repo_name}`. You are given
+the structured overview, the High-Level Design, and source excerpts of the most central
+components. Produce `lld.md`.
+
+GROUND RULES
+- Stay within the components, files, functions and classes present in the STRUCTURED
+  CONTEXT and CODE EXCERPTS. Do not invent classes, methods, endpoints, tables or
+  fields. Where an implementation detail is not visible, write "Not visible in the
+  analysed excerpts." rather than fabricating a signature.
+- This is the implementation-facing document: go deeper than the HLD. For each major
+  component describe its real classes/functions, their responsibilities, key call
+  paths, inputs/outputs, and error/validation behaviour that the excerpts show.
+- Mark statements (fact) when they come straight from an excerpt, (inferred) when they
+  are your reading of it.
+- Mermaid labels: plain words only.
+
+REQUIRED STRUCTURE:
+1. Module Breakdown — per real module: the classes/functions it owns and their roles.
+2. Key Interfaces & Signatures — the important functions/classes with their real
+   parameters and return shapes as far as the excerpts show them.
+3. Core Execution Flows — 2-4 real end-to-end paths as numbered steps through named
+   functions; a Mermaid sequence or flow diagram for the primary one.
+4. Data Models & Persistence — real data structures, schemas, and any datastore
+   interaction the excerpts show (or state none is visible).
+5. APIs / Entry Points — each real entry point or route: method, path, handler,
+   request/response shape.
+6. Error Handling & Validation — how failures and invalid input are handled in the
+   code shown.
+7. Configuration — environment variables and settings the code reads, and their effect.
+8. Implementation Notes & Gaps — concurrency, retries, edge cases, and what the design
+   leaves unspecified.
+
+<STRUCTURED_CONTEXT>
+{structured_context}
+</STRUCTURED_CONTEXT>
+
+<HIGH_LEVEL_DESIGN>
+{hld_content}
+</HIGH_LEVEL_DESIGN>
+
+<CODE_EXCERPTS>
+{code_excerpts}
+</CODE_EXCERPTS>
+
+Write clean Markdown starting with `# {repo_name} — Low-Level Design`. Output only the
+document between the tags:
+<LLD>
+lld_content
+</LLD>
+""".strip()
