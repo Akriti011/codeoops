@@ -36,7 +36,7 @@ else
 fi
 
 step "3. Application containers healthy"
-for c in codeoops-vllm codeoops-codewiki codeoops-backend codeoops-frontend; do
+for c in codeoops-vllm codeoops-engine codeoops-backend codeoops-frontend; do
   s=$(docker inspect -f '{{.State.Health.Status}}' "$c" 2>/dev/null || echo missing)
   [ "$s" = healthy ] && ok "$c: healthy" || bad "$c: $s"
 done
@@ -71,14 +71,14 @@ nvidia-smi --query-compute-apps=process_name,used_memory --format=csv,noheader 2
 
 step "6. Application reaches the pipeline"
 if curl -fsS "$APP_URL/api/v1/documentation/engine" | grep -q '"reachable":true'; then
-  ok "backend -> codewiki reachable"
+  ok "backend -> engine reachable"
 else
-  bad "backend cannot reach codewiki"
+  bad "backend cannot reach the engine"
 fi
 curl -fsS -o /dev/null "$FRONT_URL/" && ok "frontend serving" || bad "frontend not serving"
 
 step "7. HLD/LLD are wired to vLLM (config check)"
-docker exec codeoops-codewiki python3 -c "
+docker exec codeoops-engine python3 -c "
 import sys; sys.path.insert(0,'/app')
 from codewiki.src.config import task_model
 for st in ('overview','hld','lld'):

@@ -94,13 +94,16 @@ on the destination machine, then start without rebuilding.
 cd codeoops
 docker compose build
 docker save codeoops-backend:latest  -o codeoops-backend.tar
-docker save codeoops-codewiki:latest -o codeoops-codewiki.tar
+docker save codeoops-engine:latest   -o codeoops-engine.tar
 docker save codeoops-frontend:latest -o codeoops-frontend.tar
 ```
 (Image names are pinned explicitly in `docker-compose.yml` — they will not
-change even if the project folder is renamed or copied elsewhere.)
+change even if the project folder is renamed or copied elsewhere. The
+documentation-generation engine's image/container is named "codeoops-engine",
+not "codeoops-codewiki" — CodeWiki is the internal engine and stays out of
+anything user-visible, including `docker ps` output.)
 
-**Transfer** `codeoops-backend.tar`, `codeoops-codewiki.tar`,
+**Transfer** `codeoops-backend.tar`, `codeoops-engine.tar`,
 `codeoops-frontend.tar` alongside the `codeoops/` project directory (same
 method as the rest of the package — USB drive, internal file share, etc.;
 these are not committed to git given their size).
@@ -108,7 +111,7 @@ these are not committed to git given their size).
 **On the destination machine:**
 ```bash
 docker load -i codeoops-backend.tar
-docker load -i codeoops-codewiki.tar
+docker load -i codeoops-engine.tar
 docker load -i codeoops-frontend.tar
 cd codeoops
 docker compose up -d        # no --build — the loaded images are used as-is
@@ -120,10 +123,10 @@ Not assumed by default (no public Docker Hub account is required for any of
 the above). If your organization runs a private registry:
 ```bash
 docker tag codeoops-backend:latest  your-registry.example.com/codeoops-backend:latest
-docker tag codeoops-codewiki:latest your-registry.example.com/codeoops-codewiki:latest
+docker tag codeoops-engine:latest   your-registry.example.com/codeoops-engine:latest
 docker tag codeoops-frontend:latest your-registry.example.com/codeoops-frontend:latest
 docker push your-registry.example.com/codeoops-backend:latest
-docker push your-registry.example.com/codeoops-codewiki:latest
+docker push your-registry.example.com/codeoops-engine:latest
 docker push your-registry.example.com/codeoops-frontend:latest
 ```
 then set `image:` in `docker-compose.yml` to the registry path on the
@@ -432,7 +435,7 @@ none is needed or present in the shipped compose file.
 ## 12. What was actually verified (not assumed)
 
 - All three images build natively (no forced emulation) and are explicitly
-  tagged (`codeoops-backend:latest`, `codeoops-codewiki:latest`,
+  tagged (`codeoops-backend:latest`, `codeoops-engine:latest`,
   `codeoops-frontend:latest`) so the names survive being cloned into a
   differently-named folder.
 - Full stack and **backend-only** (`codewiki` + `backend`, no `frontend`)

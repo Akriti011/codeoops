@@ -2,12 +2,21 @@ services:
   codewiki:
     build: ./codewiki
     # Pinned explicitly: without this, Compose derives the image name from
-    # the parent directory (e.g. "codeoops-codewiki"), which silently
+    # the parent directory (e.g. "codeoops-engine"), which silently
     # changes if this project is cloned/copied into a differently-named
     # folder — breaking any docker save/load instructions built around a
     # fixed name. See DOCKER_DEPLOYMENT.md.
-    image: codeoops-codewiki:latest
-    container_name: codeoops-codewiki
+    #
+    # Named "codeoops-engine", not "codeoops-codewiki": CodeWiki is the
+    # internal engine name and should never surface to anyone just running
+    # `docker ps`/`docker compose ps`/`docker compose logs` — this is the
+    # same one-app branding already applied throughout the UI. The service
+    # key below stays "codewiki" (Compose's internal DNS hostname other
+    # containers use to reach it) — renaming that would touch every
+    # CODEWIKI_BASE_URL/depends_on reference for zero visible benefit, since
+    # nobody but Docker itself ever sees the service key.
+    image: codeoops-engine:latest
+    container_name: codeoops-engine
     environment:
       MAIN_MODEL: ${MAIN_MODEL:-codewiki-qwen2.5-16k:latest}
       FALLBACK_MODEL_1: ${FALLBACK_MODEL_1:-codewiki-qwen2.5-16k:latest}

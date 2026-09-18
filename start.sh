@@ -22,7 +22,7 @@ REQUIRED_MODELS="$(
   done | sort -u
 )"
 [ -z "$REQUIRED_MODELS" ] && REQUIRED_MODELS="qwen2.5-coder:7b"
-IMAGES=(codeoops-codewiki codeoops-backend codeoops-frontend)
+IMAGES=(codeoops-engine codeoops-backend codeoops-frontend)
 FAIL=0
 FRONTEND=1
 
@@ -114,10 +114,15 @@ if ! docker compose up -d $SERVICES; then
 fi
 
 step "6. Waiting for health"
+# Compose service keys stay the internal DNS names (codewiki/backend/frontend
+# — see docker-compose.yml); container_name is what's actually visible in
+# `docker ps` and is not always a plain "codeoops-<service>" derivation, so
+# this maps the one exception explicitly instead of assuming the pattern.
+_container_name() { [ "$1" = "codewiki" ] && echo "codeoops-engine" || echo "codeoops-$1"; }
 for service in $SERVICES; do
   healthy=0
   for _ in $(seq 1 30); do
-    status=$(docker inspect --format '{{.State.Health.Status}}' "codeoops-${service}" 2>/dev/null || echo "unknown")
+    status=$(docker inspect --format '{{.State.Health.Status}}' "$(_container_name "$service")" 2>/dev/null || echo "unknown")
     if [ "$status" = "healthy" ]; then
       ok "${service} healthy"
       healthy=1
@@ -130,12 +135,12 @@ for service in $SERVICES; do
   fi
 done
 
-step "7. Backend -> CodeWiki connectivity"
+step "7. Backend -> documentation engine connectivity"
 ENGINE=$(curl -s http://localhost:8000/api/v1/documentation/engine 2>/dev/null || echo "")
 if echo "$ENGINE" | grep -q '"reachable":true'; then
-  ok "backend confirms codewiki reachable: $ENGINE"
+  ok "backend confirms the documentation engine is reachable: $ENGINE"
 else
-  err "backend cannot reach codewiki: ${ENGINE:-no response}"
+  err "backend cannot reach the documentation engine: ${ENGINE:-no response}"
 fi
 
 echo ""
@@ -146,7 +151,7 @@ fi
 
 echo "CodeOops is up:"
 echo "  Backend:   http://localhost:8000  (docs: http://localhost:8000/docs)"
-echo "  CodeWiki:  http://localhost:8001"
+echo "  Engine:    http://localhost:8001"
 [ "$FRONTEND" -eq 1 ] && echo "  Frontend:  http://localhost:4200"
 echo ""
 echo "Stop with:    docker compose down"
