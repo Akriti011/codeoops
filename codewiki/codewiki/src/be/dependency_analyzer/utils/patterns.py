@@ -92,12 +92,21 @@ DEFAULT_IGNORE_PATTERNS = {
     "*.mp4",
     "*.mp3",
     "*.wav",
-    # Virtual environments
+    # Virtual environments. Exact names first, then two broader nets: a
+    # project can name its venv almost anything (seen in the wild:
+    # ".runtime-venv", which neither "venv" nor ".venv" matches), so
+    # "*venv*" catches any name containing that substring, and
+    # "site-packages" catches the one subdirectory every real Python venv
+    # has regardless of what its own parent directory is called — either
+    # one alone is enough to keep vendored third-party library internals
+    # out of the analysed component set.
     "venv",
     ".venv",
     "env",
     ".env",
     "virtualenv",
+    "*venv*",
+    "site-packages",
     # IDEs and editors
     ".idea",
     ".vscode",

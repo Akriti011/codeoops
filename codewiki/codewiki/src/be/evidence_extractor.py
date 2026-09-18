@@ -214,6 +214,13 @@ def _detect_ui(repo_path: str) -> List[str]:
 def _is_dir_excluded(dirname: str) -> bool:
     if dirname in _EXCLUDED_DIRS or dirname.endswith(".egg-info"):
         return True
+    # A dot-prefixed name (e.g. ".runtime-venv") is already caught below, but
+    # a non-dotted virtualenv name (e.g. "runtime-venv", "myenv") is not —
+    # "venv" as a substring, or the universal "site-packages" subdirectory
+    # every real Python venv has, both catch that regardless of naming.
+    lower = dirname.lower()
+    if "venv" in lower or lower == "site-packages":
+        return True
     return dirname.startswith(".") and dirname != ".github"
 
 
