@@ -42,6 +42,16 @@ DEFAULT_IGNORE_PATTERNS = {
     ".turbo/",
     "bun.lock",
     "bun.lockb",
+    # Vendored third-party source checked directly into the repo (already
+    # excluded in evidence_extractor.py's separate scan — missing here meant
+    # a real repo's committed react.development.js got parsed as first-party
+    # application code, its own internal functions dominating the
+    # "most central components" ranking fed to the LLM).
+    "vendor",
+    "vendor/",
+    "vendored",
+    "third_party",
+    "third-party",
     # Java
     "*.class",
     "*.jar",
