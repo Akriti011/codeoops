@@ -183,6 +183,39 @@ def _strip_degenerate_mermaid_diagrams(markdown: str) -> str:
     return _MERMAID_BLOCK_RE.sub(_replace, markdown)
 
 
+# A heading line immediately followed — after only blank lines — by another
+# heading or end-of-document. This is exactly the shape
+# _strip_degenerate_mermaid_diagrams leaves behind: it correctly removes a
+# broken diagram block, but has no visibility into the heading the model
+# wrote to introduce it, so the heading survives with nothing under it —
+# reading as a jarring gap rather than a deliberate, honest omission. The
+# heading text itself is matched separately (not folded into this regex) to
+# avoid the backtracking cost of a keyword search sandwiched between two
+# wildcards on every heading line in the document.
+# A single literal space (not a quantifier) between the hashes and the
+# heading text avoids overlapping-quantifier ambiguity with the [^\n]* that
+# follows (both would otherwise happily consume the same run of spaces).
+_EMPTY_SECTION_RE = re.compile(r"^(#{2,4} [^\n]*)\n+(?=#{1,6}[ \t]|\Z)", re.MULTILINE)
+_DIAGRAM_HEADING_RE = re.compile(r"\b(?:diagram|mermaid)\b", re.IGNORECASE)
+
+
+def _fill_orphaned_diagram_headings(markdown: str) -> str:
+    """Give a diagram heading left empty by stripping an honest one-liner,
+    matching the same "state the absence" convention the prompts already use
+    ("Not evidenced by the analysed codebase.", "Not visible in the analysed
+    excerpts.") rather than leaving an unexplained blank gap. Scoped to
+    diagram/mermaid headings specifically — a short-but-legitimate section on
+    any other topic is left untouched."""
+
+    def _replace(match: "re.Match[str]") -> str:
+        heading = match.group(1)
+        if not _DIAGRAM_HEADING_RE.search(heading):
+            return match.group(0)
+        return f"{heading}\nNo reliable diagram could be generated for this section.\n\n"
+
+    return _EMPTY_SECTION_RE.sub(_replace, markdown)
+
+
 class IncompleteDocumentationError(Exception):
     """Raised when generation finishes but some modules have no doc file on disk."""
 
@@ -583,6 +616,13 @@ class DocumentationGenerator:
             )
             overview_content = self._insert_deterministic_diagram(overview_content, components)
 
+        # The fallback above only covers the primary architecture diagram —
+        # a secondary one (e.g. "Mermaid Data-Flow Diagram") that gets
+        # stripped as degenerate while the primary survives leaves its own
+        # heading orphaned, since the "no mermaid at all" check above never
+        # fires in that case.
+        overview_content = _fill_orphaned_diagram_headings(overview_content)
+
         if not overview_content:
             raise IncompleteDocumentationError(["overview"])
 
@@ -677,6 +717,11 @@ class DocumentationGenerator:
         body = overview_mapreduce._strip_image_links(body)
         body = _sanitize_mermaid_labels(body)
         body = _strip_degenerate_mermaid_diagrams(body)
+        # Unlike the overview (which falls back to a deterministic,
+        # edge-derived diagram when none survives), HLD/LLD have no
+        # equivalent fallback — a stripped diagram here previously left its
+        # introducing heading orphaned with nothing underneath.
+        body = _fill_orphaned_diagram_headings(body)
         if not body:
             logger.error("%s generation produced an empty document", kind.upper())
             return None
