@@ -67,7 +67,7 @@ services:
       - "host.docker.internal:host-gateway"
     networks:
       - codeoops-net
-    mem_limit: ${CODEWIKI_MEM_LIMIT:-2g}
+    mem_limit: ${CODEWIKI_MEM_LIMIT:-4g}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/"]
@@ -140,6 +140,12 @@ services:
       ARTIFACT_ROOT: /data/artifacts
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:4200}
       ALLOWED_REPOSITORY_HOSTS: ${ALLOWED_REPOSITORY_HOSTS:-github.com}
+      # ZIP upload ingestion limits (backend/app/core/config.py Settings).
+      # Defaults here match the Settings field defaults — set only to make
+      # them overridable per-deployment via .env, same as everything else.
+      UPLOAD_MAX_ARCHIVE_BYTES: ${UPLOAD_MAX_ARCHIVE_BYTES:-2147483648}
+      UPLOAD_MAX_EXTRACTED_BYTES: ${UPLOAD_MAX_EXTRACTED_BYTES:-8589934592}
+      UPLOAD_MAX_FILE_COUNT: ${UPLOAD_MAX_FILE_COUNT:-200000}
     ports:
       - "8000:8000"
     volumes:

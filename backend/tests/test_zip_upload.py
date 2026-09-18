@@ -80,6 +80,23 @@ def _zip_with_symlink() -> bytes:
     return buf.getvalue()
 
 
+class TestUploadLimitDefaults:
+    """The product requirement is a 2GB ceiling — assert the real Settings
+    defaults reflect that, independent of the per-test overrides used
+    everywhere else in this file (which intentionally use tiny/generous
+    limits and would not catch a regression in the shipped defaults)."""
+
+    def test_default_archive_limit_is_2gb(self) -> None:
+        assert Settings().upload_max_archive_bytes == 2 * 1024 * 1024 * 1024
+
+    def test_default_extracted_limit_has_headroom_over_the_archive_limit(self) -> None:
+        settings = Settings()
+        assert settings.upload_max_extracted_bytes > settings.upload_max_archive_bytes
+
+    def test_default_file_count_limit_is_raised_for_larger_repositories(self) -> None:
+        assert Settings().upload_max_file_count >= 200_000
+
+
 # --- Unit tests: zip_ingestion.validate_and_extract ----------------------
 
 

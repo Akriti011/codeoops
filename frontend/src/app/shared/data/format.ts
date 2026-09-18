@@ -77,10 +77,18 @@ export function httpErrorMessage(error: unknown, fallback: string): string {
     if (error.status === 0) {
       return 'Could not reach the CodeOops API. Check that the backend is running.';
     }
-    const body = error.error as { detail?: unknown; message?: unknown } | string | null;
+    const body = error.error as
+      | { error?: { message?: unknown }; detail?: unknown; message?: unknown }
+      | string
+      | null;
     if (typeof body === 'string' && body.trim()) return body.trim();
     if (body && typeof body === 'object') {
-      const detail = body.detail ?? body.message;
+      // AppError.to_payload() (backend/app/core/errors.py) nests the real
+      // message under `error.message` — that shape covers every application
+      // error (including ARCHIVE_TOO_LARGE). `detail`/top-level `message`
+      // remain as fallbacks for the few routes still using a raw FastAPI
+      // HTTPException(detail=...).
+      const detail = body.error?.message ?? body.detail ?? body.message;
       if (typeof detail === 'string' && detail.trim()) return detail.trim();
     }
     return `${error.status} ${error.statusText || 'Request failed'}`;

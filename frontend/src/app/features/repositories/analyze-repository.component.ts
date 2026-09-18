@@ -21,6 +21,9 @@ import {
 const REPO_PATTERN =
   /^(https?:\/\/[\w.-]+(?::\d+)?\/[\w.\-~/]+|git@[\w.-]+:[\w.\-~/]+)(\.git)?\/?$/i;
 
+/** Kept in sync with backend/app/core/config.py's upload_max_archive_bytes default. */
+const MAX_ZIP_BYTES = 2 * 1024 * 1024 * 1024;
+
 /**
  * The backend's `POST /documentation/jobs` accepts only a repository URL (or
  * an already-registered repository id) — no branch parameter. It always
@@ -473,6 +476,12 @@ export class AnalyzeRepositoryComponent {
       this.submitError.set('Please choose a .zip archive.');
       return;
     }
+    if (file.size > MAX_ZIP_BYTES) {
+      this.submitError.set(
+        `This archive is ${this.humanSize(file.size)} — the limit is ${this.humanSize(MAX_ZIP_BYTES)}.`,
+      );
+      return;
+    }
     this.submitError.set(null);
     this.selectedFile.set(file);
   }
@@ -480,7 +489,8 @@ export class AnalyzeRepositoryComponent {
   protected humanSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
   }
 
   protected submitZip(): void {

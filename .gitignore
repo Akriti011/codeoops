@@ -30,6 +30,11 @@ npm-debug.log*
 # never application source, and CodeOops has no database to gitignore instead)
 backend/var/
 codewiki/codewiki/output/
+# Accidentally committed once (a Docker image-archive blob store, ~570MB —
+# exceeds GitHub's 100MB limit and blocks every push). Never track archives
+# like this; see DOCKER_DEPLOYMENT.md option B for the real offline-transfer
+# path if one is needed again.
+*.tar.gz
 
 # Claude Code session tooling — not part of the application
 .claude/

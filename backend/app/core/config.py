@@ -73,9 +73,12 @@ class Settings(BaseSettings):
     # archive. Extracted repositories are written under codewiki_output_root
     # (required for uploads — CodeWiki must be able to see them on its own
     # shared volume), never anywhere else.
-    upload_max_archive_bytes: int = Field(default=200 * 1024 * 1024)
-    upload_max_extracted_bytes: int = Field(default=1024 * 1024 * 1024)
-    upload_max_file_count: int = Field(default=50_000)
+    # 2GB compressed ceiling per product requirement; extracted ceiling is
+    # set well above that (repos routinely decompress to several times their
+    # zip size) rather than at a tight 1:1 ratio.
+    upload_max_archive_bytes: int = Field(default=2 * 1024 * 1024 * 1024)
+    upload_max_extracted_bytes: int = Field(default=8 * 1024 * 1024 * 1024)
+    upload_max_file_count: int = Field(default=200_000)
 
     @field_validator("allowed_origins", "allowed_repository_hosts", mode="before")
     @classmethod
